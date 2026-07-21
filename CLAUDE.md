@@ -1,0 +1,62 @@
+# tin — Project Context
+
+## What this is
+A recurring-chores + backlog tracker PWA for me and a roommate/partner. The one question it answers: **"how many days ago did I last do this, and what's due?"** (cat fountain filter every 2 weeks, sheets every month, plus a backlog of one-time stuff). Mobile-first, one-tap logging, free to host. Not commercial — favor simplicity and shipping over generality. Sibling project to the gym tracker (`pousse de la fonte`), same stack and philosophy.
+
+## Stack (decided, don't relitigate without asking)
+- **Frontend:** React + Vite + TypeScript, PWA (installable), Tailwind v4, TanStack Query, React Router
+- **Backend:** Supabase free tier (its **own** project, separate from the gym one) — Postgres, Auth (email OTP codes, not magic links), Row Level Security
+- **Hosting:** Vercel free tier (`vercel.json` has the SPA rewrite)
+- **No custom server.** All data access goes through the Supabase client with RLS enforcing per-space isolation.
+
+## Core architectural principle
+**Task state is computed from the completion log, never stored.** A `tasks` row defines the chore; `task_completions` records every time it was done, by whom, on what day. "Days since last done", due/overdue, per-task history, and cadence stats all derive from the log at read time. Marking done = inserting one completion row; undo = deleting it. Nothing else mutates.
+
+## Recurrence model (decided)
+**Elapsed-time intervals anchored to the last completion** — "due every N days after I actually last did it", not calendar schedules. Washing sheets 5 days late means the next wash is due N days from the late wash. `interval_days` on the task; due when `days_since_last >= interval_days`. Days are compared as **local calendar days** (`done_on` is a `date` chosen client-side), so "yesterday 11pm" is 1 day ago.
+(Fixed-day schedules like "trash every Tuesday" are a possible later addition as new columns — design nothing that blocks that, build none of it now.)
+
+## Data model
+Sharing works through **spaces**: every task belongs to a space, every space has members, and RLS scopes everything to spaces you're a member of. A personal space is auto-created on first login (`is_personal`); shared spaces are joined with a 6-char `join_code`.
+
+- **spaces** — `id, name, join_code, is_personal, created_by, created_at`
+- **space_members** — `space_id, user_id, display_name, joined_at` (display_name shown as "who did it")
+- **tasks** — `id, space_id, title, notes, kind ('recurring'|'oneoff'), interval_days, archived, created_by, created_at`
+  - One-offs have `interval_days null`; a one-off with any completion is "done". Same tap path as recurring.
+- **task_completions** — `id, task_id, done_by, done_on date, created_at` (grows forever; powers everything)
+
+Supabase gotchas already baked into the migration (both learned on the gym tracker):
+- **New tables 404 in the Data API until granted** to the querying role — migration has explicit grants (column-level for insert/update).
+- RLS policies on `space_members` can't query `space_members` (infinite recursion) — membership checks go through `security definer` helpers (`is_space_member`, `can_access_task`). Membership rows are only ever created by definer paths (space-creation trigger, `join_space(code)` RPC).
+- Email OTP login requires `{{ .Token }}` in the Supabase email template.
+
+## Screens
+Bottom tab bar: **Due / Backlog / Manage**. Tasks from all my spaces are merged into one list (small space chip on shared tasks).
+1. **Due** (home) — every recurring task, split into "Due now" and "Coming up", sorted most-overdue first. The hero number on each row is **days since last done**.
+2. **Backlog** — one-time tasks, open ones on top, done ones collapse below with undo.
+3. **Manage** — spaces (create/join/rename, join code, members, my display name), archived tasks, account. Utilitarian is fine.
+4. **Task detail** (`/task/:id`) — status, log-for-another-day, edit/archive/delete, completion history, cadence stat ("usually every ~16d").
+
+## UX rules (non-negotiable)
+- Logging a completion is **one tap on a ≥52px target**, optimistic (client-generated uuid), with an **Undo snackbar**. No confirm dialogs on the happy path.
+- **"X days ago" is the hero number** everywhere; color encodes urgency (new / ok / soon / due / overdue).
+- **Long-press the done button = backdate** ("I did it yesterday, forgot to log") — today/yesterday/2d/3d or a date picker. Also reachable from task detail.
+- Adding a task takes ≤10 seconds: title + interval presets (3/7/14/30 or stepper), kind toggle, space chips. Everything else has defaults.
+- Shared tasks show **who** last did it (display names from space_members; "you" for self).
+- Supabase Realtime invalidates queries so a roommate's log shows up live. Full offline mutation queueing is **not** built yet (chores happen on home wifi) — candidate for later hardening.
+- Demo mode (`?demo=1` or `VITE_DEMO=1`) fakes a session and seeds local data — UI is browsable with no backend; mutations are cache-only.
+
+## Build order
+1. Scaffold, schema + RLS migration, auth (email OTP) ✅
+2. Vertical slice: personal-space bootstrap, task CRUD, done-tap, due list ✅
+3. Backlog + backdating + undo ✅
+4. Sharing: spaces UI, join codes, who-did-it, realtime ✅ (code written; needs a live Supabase project to verify end-to-end)
+5. History + cadence stats on task detail ✅
+6. PWA polish: manifest + icons + autoupdating SW ✅; offline sync hardening later if it ever hurts
+
+## Conventions
+- TypeScript strict. DB types hand-written in `src/lib/types.ts` to match the migration; replace with `supabase gen types` output once the project exists.
+- Components small; server state lives in TanStack Query, no separate store.
+- Migrations as SQL files in `supabase/migrations/`, committed.
+- Mobile viewport first; test at 380px width.
+- Icons regenerate with `npm run icons` (edit `public/icon.svg`, sharp rasterizes the PNGs).
