@@ -2,11 +2,16 @@ import { useState } from 'react'
 import { useUid } from '../auth/useSession'
 import { AddTaskSheet } from '../components/AddTaskSheet'
 import { BackdateSheet } from '../components/BackdateSheet'
+import type { DragHandle } from '../components/SortableList'
+import { SortableList } from '../components/SortableList'
 import { BacklogRow } from '../components/TaskRow'
 import { EmptyState, Fab, RowSkeleton, Section } from '../components/ui'
 import { useLogDone, useSpaceLabel } from '../data/helpers'
-import { useMemberNames, useTasks, useUndoCompletion } from '../data/queries'
+import { useMemberNames, useReorderTasks, useTasks, useUndoCompletion } from '../data/queries'
 import { todayLocal } from '../lib/dates'
+import { reorderUpdates } from '../lib/order'
+import { backlogItems } from '../lib/subtasks'
+import type { BacklogItem } from '../lib/subtasks'
 import type { TaskWithLast } from '../lib/types'
 
 export function BacklogScreen() {
@@ -16,24 +21,46 @@ export function BacklogScreen() {
   const spaceLabel = useSpaceLabel()
   const logDone = useLogDone()
   const undo = useUndoCompletion()
+  const reorder = useReorderTasks()
   const [adding, setAdding] = useState(false)
   const [backdating, setBackdating] = useState<TaskWithLast | null>(null)
+  // only the rows you've actually toggled; everything else follows the default
+  const [expandOverride, setExpandOverride] = useState<Record<string, boolean>>({})
 
-  const oneoffs = (tasks ?? []).filter((t) => t.kind === 'oneoff' && !t.archived)
-  const open = oneoffs.filter((t) => !t.last)
-  const done = oneoffs
-    .filter((t) => t.last)
-    .sort((a, b) => (a.last!.done_on < b.last!.done_on ? 1 : -1))
+  const items = backlogItems(tasks ?? [])
+  const open = items.filter((i) => !i.done)
+  const done = items
+    .filter((i) => i.done)
+    .sort((a, b) => (a.done!.done_on < b.done!.done_on ? 1 : -1))
 
-  const row = (t: TaskWithLast) => (
+  // unfinished checklists are worth seeing; finished ones are just noise
+  const isExpanded = (i: BacklogItem) => expandOverride[i.task.id] ?? !i.done
+  const toggleExpand = (id: string, now: boolean) =>
+    setExpandOverride((prev) => ({ ...prev, [id]: !now }))
+
+  const toggleSubtask = (s: TaskWithLast) =>
+    s.last
+      ? undo.mutate({ completionId: s.last.id, taskId: s.id })
+      : logDone(s, todayLocal())
+
+  const row = (i: BacklogItem, handle?: DragHandle, dragging?: boolean) => (
     <BacklogRow
-      key={t.id}
-      task={t}
-      who={(u) => nameFor(t.space_id, u)}
-      spaceName={spaceLabel(t.space_id)}
-      onDone={() => logDone(t, todayLocal())}
-      onBackdate={() => setBackdating(t)}
-      onUndo={() => undo.mutate({ completionId: t.last!.id, taskId: t.id })}
+      key={i.task.id}
+      task={i.task}
+      who={(u) => nameFor(i.task.space_id, u)}
+      spaceName={spaceLabel(i.task.space_id)}
+      subtasks={i.subtasks}
+      doneCount={i.doneCount}
+      done={i.done}
+      expanded={isExpanded(i)}
+      onToggleExpand={() => toggleExpand(i.task.id, isExpanded(i))}
+      onDone={() => logDone(i.task, todayLocal())}
+      onBackdate={() => setBackdating(i.task)}
+      onUndo={() => undo.mutate({ completionId: i.task.last!.id, taskId: i.task.id })}
+      onSubtaskTap={toggleSubtask}
+      onSubtaskLongPress={setBackdating}
+      handle={handle}
+      dragging={dragging}
     />
   )
 
@@ -59,15 +86,31 @@ export function BacklogScreen() {
         </div>
       )}
 
-      {!isLoading && oneoffs.length === 0 && (
+      {!isLoading && items.length === 0 && (
         <EmptyState
           title="Nothing in the backlog"
           hint="One-time stuff lives here: things to buy, fix, book, or email."
         />
       )}
 
-      {open.length > 0 && <Section title="To do">{open.map(row)}</Section>}
-      {done.length > 0 && <Section title="Done">{done.map(row)}</Section>}
+      {open.length > 0 && (
+        <Section title="To do">
+          {open.length === 1 ? (
+            open.map((i) => row(i))
+          ) : (
+            <SortableList
+              items={open}
+              getId={(i) => i.task.id}
+              onReorder={(from, to) =>
+                reorder.mutate(reorderUpdates(open.map((i) => i.task), from, to))
+              }
+            >
+              {row}
+            </SortableList>
+          )}
+        </Section>
+      )}
+      {done.length > 0 && <Section title="Done">{done.map((i) => row(i))}</Section>}
 
       <Fab onClick={() => setAdding(true)} />
       <AddTaskSheet open={adding} onClose={() => setAdding(false)} defaultKind="oneoff" />

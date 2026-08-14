@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef } from 'react'
 import { DEMO } from '../lib/demo'
+import type { SortUpdate } from '../lib/order'
 import { supabase } from '../lib/supabase'
 import type {
   CompletionRow,
@@ -47,6 +48,8 @@ export function useTasks() {
       const { data, error } = await supabase
         .from('tasks')
         .select('*, task_completions(id, done_on, done_by)')
+        // hand-sorted order (backlog); created_at breaks ties for everything else
+        .order('sort_order')
         .order('created_at', { ascending: false })
         .order('done_on', { referencedTable: 'task_completions', ascending: false })
         .limit(1, { referencedTable: 'task_completions' })
@@ -187,6 +190,8 @@ export interface AddTaskVars {
   notes: string | null
   kind: TaskKind
   interval_days: number | null
+  sort_order: number
+  parent_id: string | null
   createdBy: string
 }
 
@@ -202,6 +207,8 @@ export function useAddTask() {
         notes: v.notes,
         kind: v.kind,
         interval_days: v.interval_days,
+        sort_order: v.sort_order,
+        parent_id: v.parent_id,
       })
       if (error) throw error
     },
@@ -210,7 +217,8 @@ export function useAddTask() {
       const prevTasks = qc.getQueryData<TaskWithLast[]>(keys.tasks)
       const row: TaskWithLast = {
         id: v.id, space_id: v.space_id, title: v.title, notes: v.notes, kind: v.kind,
-        interval_days: v.interval_days, archived: false, created_by: v.createdBy,
+        interval_days: v.interval_days, archived: false, sort_order: v.sort_order,
+        parent_id: v.parent_id, created_by: v.createdBy,
         created_at: new Date().toISOString(), last: null,
       }
       qc.setQueryData<TaskWithLast[]>(keys.tasks, (old) => [row, ...(old ?? [])])
@@ -247,6 +255,38 @@ export function useUpdateTask() {
   })
 }
 
+/** Writes the sort_order(s) a drag produced (usually exactly one row). */
+export function useReorderTasks() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (updates: SortUpdate[]) => {
+      if (DEMO) return
+      for (const u of updates) {
+        const { error } = await supabase
+          .from('tasks')
+          .update({ sort_order: u.sort_order })
+          .eq('id', u.id)
+        if (error) throw error
+      }
+    },
+    onMutate: async (updates) => {
+      await qc.cancelQueries({ queryKey: keys.tasks })
+      const prevTasks = qc.getQueryData<TaskWithLast[]>(keys.tasks)
+      const next = new Map(updates.map((u) => [u.id, u.sort_order]))
+      qc.setQueryData<TaskWithLast[]>(keys.tasks, (old) =>
+        old
+          ?.map((t) => (next.has(t.id) ? { ...t, sort_order: next.get(t.id)! } : t))
+          .sort((a, b) => a.sort_order - b.sort_order || (a.created_at < b.created_at ? 1 : -1)),
+      )
+      return { prevTasks }
+    },
+    onError: (_e, _v, ctx) => qc.setQueryData(keys.tasks, ctx?.prevTasks),
+    onSettled: () => {
+      if (!DEMO) void qc.invalidateQueries({ queryKey: keys.tasks })
+    },
+  })
+}
+
 export function useDeleteTask() {
   const qc = useQueryClient()
   return useMutation({
@@ -258,7 +298,10 @@ export function useDeleteTask() {
     onMutate: async (v) => {
       await qc.cancelQueries({ queryKey: keys.tasks })
       const prevTasks = qc.getQueryData<TaskWithLast[]>(keys.tasks)
-      qc.setQueryData<TaskWithLast[]>(keys.tasks, (old) => old?.filter((t) => t.id !== v.id))
+      // the FK cascades to subtasks server-side; drop them here too
+      qc.setQueryData<TaskWithLast[]>(keys.tasks, (old) =>
+        old?.filter((t) => t.id !== v.id && t.parent_id !== v.id),
+      )
       return { prevTasks }
     },
     onError: (_e, _v, ctx) => qc.setQueryData(keys.tasks, ctx?.prevTasks),

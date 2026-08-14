@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react'
+import type { FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useUid } from '../auth/useSession'
 import { AddTaskSheet } from '../components/AddTaskSheet'
 import { BackdateSheet } from '../components/BackdateSheet'
-import { DaysBadge } from '../components/TaskRow'
-import { cardCls, primaryBtn, secondaryBtn, Section } from '../components/ui'
+import { DaysBadge, ProgressRing, SubtaskRow } from '../components/TaskRow'
+import { cardCls, inputCls, primaryBtn, secondaryBtn, Section } from '../components/ui'
 import { useLogDone } from '../data/helpers'
 import {
+  useAddTask,
   useDeleteTask,
   useHistory,
   useMemberNames,
@@ -15,7 +17,9 @@ import {
   useUpdateTask,
 } from '../data/queries'
 import { daysBetween, daysSince, fmtAgo, fmtDay, todayLocal } from '../lib/dates'
+import { itemDone, nextSubtaskOrder } from '../lib/subtasks'
 import { dueText, taskState } from '../lib/task-state'
+import type { TaskWithLast } from '../lib/types'
 
 export function TaskDetailScreen() {
   const { id } = useParams<{ id: string }>()
@@ -25,13 +29,24 @@ export function TaskDetailScreen() {
   const { data: history } = useHistory(id ?? '')
   const nameFor = useMemberNames(uid)
   const logDone = useLogDone()
+  const addTask = useAddTask()
   const updateTask = useUpdateTask()
   const deleteTask = useDeleteTask()
   const undo = useUndoCompletion()
   const [editing, setEditing] = useState(false)
-  const [backdating, setBackdating] = useState(false)
+  const [backdating, setBackdating] = useState<TaskWithLast | null>(null)
+  const [newSubtask, setNewSubtask] = useState('')
 
   const task = tasks?.find((t) => t.id === id)
+
+  const subtasks = useMemo(
+    () =>
+      (tasks ?? [])
+        .filter((t) => t.parent_id === id && !t.archived)
+        .sort((a, b) => a.sort_order - b.sort_order || (a.created_at < b.created_at ? -1 : 1)),
+    [tasks, id],
+  )
+  const parent = tasks?.find((t) => t.id === task?.parent_id)
 
   const cadence = useMemo(() => {
     if (!history || history.length < 3) return null
@@ -55,12 +70,40 @@ export function TaskDetailScreen() {
 
   const s = taskState(task, task.last?.done_on ?? null)
   const who = (u: string) => nameFor(task.space_id, u)
+  const done = itemDone(task, subtasks)
+  const doneCount = subtasks.filter((t) => t.last).length
+  // recurring tasks and subtasks themselves stay flat — one level only
+  const canHaveSubtasks = task.kind === 'oneoff' && !task.parent_id
 
   function del() {
     if (!task) return
-    if (!window.confirm(`Delete “${task.title}” and its whole history?`)) return
+    const extra = subtasks.length ? `, its ${subtasks.length} subtasks` : ''
+    if (!window.confirm(`Delete “${task.title}”${extra} and the whole history?`)) return
     deleteTask.mutate({ id: task.id })
     navigate('/')
+  }
+
+  function addSubtask(e: FormEvent) {
+    e.preventDefault()
+    const title = newSubtask.trim()
+    if (!title || !task) return
+    addTask.mutate({
+      id: crypto.randomUUID(),
+      space_id: task.space_id, // RLS and the 0003 trigger both require the parent's space
+      title,
+      notes: null,
+      kind: 'oneoff',
+      interval_days: null,
+      sort_order: nextSubtaskOrder(subtasks),
+      parent_id: task.id,
+      createdBy: uid,
+    })
+    setNewSubtask('') // input keeps focus so a whole checklist goes in one go
+  }
+
+  function toggleSubtask(sub: TaskWithLast) {
+    if (sub.last) undo.mutate({ completionId: sub.last.id, taskId: sub.id })
+    else logDone(sub, todayLocal())
   }
 
   return (
@@ -75,15 +118,34 @@ export function TaskDetailScreen() {
         Back
       </button>
 
+      {parent && (
+        <button
+          className="mb-3 flex max-w-full items-center gap-1.5 text-sm text-stone-500"
+          onClick={() => navigate(`/task/${parent.id}`)}
+        >
+          <span className="shrink-0 text-stone-400">part of</span>
+          <span className="truncate font-medium text-accent">{parent.title}</span>
+        </button>
+      )}
+
       <div className={`${cardCls} mb-4 flex items-center gap-4 p-4`}>
-        <DaysBadge task={task} size="lg" />
+        {subtasks.length > 0 ? (
+          <ProgressRing done={doneCount} total={subtasks.length} size="lg" />
+        ) : (
+          <DaysBadge task={task} size="lg" />
+        )}
         <div className="min-w-0">
           <h1 className="text-xl font-bold leading-tight">{task.title}</h1>
           <p className="mt-1 text-sm text-stone-500">
             {task.kind === 'recurring' ? `every ${task.interval_days}d` : 'one-time'}
+            {subtasks.length > 0 && ` · ${doneCount} of ${subtasks.length} done`}
             {dueText(s) && ` · ${dueText(s)}`}
           </p>
-          {task.last && <p className="text-sm text-stone-500">last by {who(task.last.done_by)}</p>}
+          {done && (
+            <p className="text-sm text-stone-500">
+              done {fmtAgo(daysSince(done.done_on))} by {who(done.done_by)}
+            </p>
+          )}
           {task.archived && (
             <span className="mt-1 inline-block rounded bg-stone-100 px-1.5 py-0.5 text-[10px] text-stone-500 dark:bg-stone-800">
               archived
@@ -101,11 +163,72 @@ export function TaskDetailScreen() {
         </p>
       )}
 
+      {canHaveSubtasks && (
+        <Section title="Subtasks">
+          {subtasks.length > 0 && (
+            <ul className={`${cardCls} px-3 pb-1`}>
+              {subtasks.map((sub) => (
+                <SubtaskRow
+                  key={sub.id}
+                  task={sub}
+                  onTap={() => toggleSubtask(sub)}
+                  onLongPress={() => setBackdating(sub)}
+                  trailing={
+                    <>
+                      <button
+                        aria-label={`Open “${sub.title}”`}
+                        className="flex h-13 w-8 shrink-0 items-center justify-center text-stone-300 dark:text-stone-600"
+                        onClick={() => navigate(`/task/${sub.id}`)}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M9 18l6-6-6-6" />
+                        </svg>
+                      </button>
+                      <button
+                        aria-label={`Delete “${sub.title}”`}
+                        className="flex h-13 w-8 shrink-0 items-center justify-center text-stone-300 dark:text-stone-600"
+                        onClick={() => {
+                          if (sub.last && !window.confirm(`Delete “${sub.title}” and its history?`))
+                            return
+                          deleteTask.mutate({ id: sub.id })
+                        }}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M6 6l12 12M18 6L6 18" />
+                        </svg>
+                      </button>
+                    </>
+                  }
+                />
+              ))}
+            </ul>
+          )}
+          <form className="flex gap-2" onSubmit={addSubtask}>
+            <input
+              className={`${inputCls} flex-1`}
+              placeholder="Add a subtask"
+              value={newSubtask}
+              onChange={(e) => setNewSubtask(e.target.value)}
+            />
+            <button className={primaryBtn} disabled={!newSubtask.trim()}>
+              Add
+            </button>
+          </form>
+          {subtasks.length > 0 && (
+            <p className="px-1 text-xs text-stone-400">
+              {doneCount === subtasks.length
+                ? 'All done — this is off the backlog.'
+                : 'Ticking the last one takes this off the backlog.'}
+            </p>
+          )}
+        </Section>
+      )}
+
       <div className="mb-6 grid grid-cols-2 gap-2">
         <button className={primaryBtn} onClick={() => logDone(task, todayLocal())}>
-          Done today
+          {subtasks.length > 0 ? 'Done anyway' : 'Done today'}
         </button>
-        <button className={secondaryBtn} onClick={() => setBackdating(true)}>
+        <button className={secondaryBtn} onClick={() => setBackdating(task)}>
           Another day…
         </button>
         <button className={secondaryBtn} onClick={() => setEditing(true)}>
@@ -150,11 +273,18 @@ export function TaskDetailScreen() {
         ))}
       </Section>
 
-      <AddTaskSheet open={editing} onClose={() => setEditing(false)} task={task} />
+      <AddTaskSheet
+        open={editing}
+        onClose={() => setEditing(false)}
+        task={task}
+        lockKind={!!task.parent_id || subtasks.length > 0}
+      />
       <BackdateSheet
-        open={backdating}
-        onClose={() => setBackdating(false)}
-        onPick={(d) => logDone(task, d)}
+        open={backdating !== null}
+        onClose={() => setBackdating(null)}
+        onPick={(d) => {
+          if (backdating) logDone(backdating, d)
+        }}
       />
     </div>
   )

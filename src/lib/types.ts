@@ -47,6 +47,10 @@ export type Database = {
           kind: TaskKind
           interval_days: number | null
           archived: boolean
+          // fractional index for the hand-sorted backlog (see 0002 migration)
+          sort_order: number
+          // set on subtasks: the backlog task they hang off (0003; one level only)
+          parent_id: string | null
           created_by: string
           created_at: string
         }
@@ -57,6 +61,8 @@ export type Database = {
           notes?: string | null
           kind: TaskKind
           interval_days?: number | null
+          sort_order?: number
+          parent_id?: string | null
         }
         Update: {
           title?: string
@@ -64,6 +70,8 @@ export type Database = {
           kind?: TaskKind
           interval_days?: number | null
           archived?: boolean
+          sort_order?: number
+          parent_id?: string | null
         }
         Relationships: [
           {

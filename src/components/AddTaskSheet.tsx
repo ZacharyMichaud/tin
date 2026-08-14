@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useUid } from '../auth/useSession'
-import { useAddTask, useSpaces, useUpdateTask } from '../data/queries'
+import { useAddTask, useSpaces, useTasks, useUpdateTask } from '../data/queries'
+import { topSortOrder } from '../lib/order'
 import type { TaskKind, TaskWithLast } from '../lib/types'
 import { Sheet } from './Sheet'
 import { inputCls, primaryBtn } from './ui'
@@ -12,14 +13,18 @@ export function AddTaskSheet({
   onClose,
   defaultKind = 'recurring',
   task,
+  lockKind = false,
 }: {
   open: boolean
   onClose: () => void
   defaultKind?: TaskKind
   task?: TaskWithLast // edit mode
+  /** Subtasks and their parents must stay one-offs (enforced by the 0003 trigger). */
+  lockKind?: boolean
 }) {
   const uid = useUid()
   const { data: spaces } = useSpaces()
+  const { data: tasks } = useTasks()
   const addTask = useAddTask()
   const updateTask = useUpdateTask()
 
@@ -62,6 +67,8 @@ export function AddTaskSheet({
         notes: notes.trim() || null,
         kind,
         interval_days,
+        sort_order: topSortOrder(tasks), // new tasks land on top
+        parent_id: null, // subtasks are added from the parent's detail screen
         createdBy: uid,
       })
       localStorage.setItem('tin-last-space', spaceId)
@@ -97,14 +104,16 @@ export function AddTaskSheet({
           onChange={(e) => setTitle(e.target.value)}
         />
 
-        <div className="flex gap-1 rounded-xl bg-stone-100 p-1 dark:bg-stone-800">
-          <button type="button" className={segCls(kind === 'recurring')} onClick={() => setKind('recurring')}>
-            Recurring
-          </button>
-          <button type="button" className={segCls(kind === 'oneoff')} onClick={() => setKind('oneoff')}>
-            One-time
-          </button>
-        </div>
+        {!lockKind && (
+          <div className="flex gap-1 rounded-xl bg-stone-100 p-1 dark:bg-stone-800">
+            <button type="button" className={segCls(kind === 'recurring')} onClick={() => setKind('recurring')}>
+              Recurring
+            </button>
+            <button type="button" className={segCls(kind === 'oneoff')} onClick={() => setKind('oneoff')}>
+              One-time
+            </button>
+          </div>
+        )}
 
         {kind === 'recurring' && (
           <div className="flex flex-col gap-2">
