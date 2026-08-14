@@ -138,8 +138,10 @@ export function TaskDetailScreen() {
           <h1 className="text-xl font-bold leading-tight">{task.title}</h1>
           <p className="mt-1 text-sm text-stone-500">
             {task.kind === 'recurring' ? `every ${task.interval_days}d` : 'one-time'}
-            {subtasks.length > 0 && ` · ${doneCount} of ${subtasks.length} done`}
-            {dueText(s) && ` · ${dueText(s)}`}
+            {/* with a checklist the count is the status; "not logged yet" only confuses */}
+            {subtasks.length > 0
+              ? ` · ${doneCount} of ${subtasks.length} done`
+              : dueText(s) && ` · ${dueText(s)}`}
           </p>
           {done && (
             <p className="text-sm text-stone-500">
@@ -216,9 +218,11 @@ export function TaskDetailScreen() {
           </form>
           {subtasks.length > 0 && (
             <p className="px-1 text-xs text-stone-400">
-              {doneCount === subtasks.length
-                ? 'All done — this is off the backlog.'
-                : 'Ticking the last one takes this off the backlog.'}
+              {task.last
+                ? 'Marked done by hand — remove the log below to reopen it.'
+                : doneCount === subtasks.length
+                  ? 'All done — this is off the backlog.'
+                  : 'Ticking the last one takes this off the backlog.'}
             </p>
           )}
         </Section>
