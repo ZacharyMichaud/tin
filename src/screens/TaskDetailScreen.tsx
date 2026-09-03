@@ -4,7 +4,8 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useUid } from '../auth/useSession'
 import { AddTaskSheet } from '../components/AddTaskSheet'
 import { BackdateSheet } from '../components/BackdateSheet'
-import { DaysBadge, ProgressRing, SubtaskRow } from '../components/TaskRow'
+import { GroupBadge } from '../components/GroupRow'
+import { DaysBadge, DueBadge, ProgressRing, SubtaskRow } from '../components/TaskRow'
 import { cardCls, inputCls, primaryBtn, secondaryBtn, Section } from '../components/ui'
 import { useLogDone } from '../data/helpers'
 import {
@@ -16,7 +17,7 @@ import {
   useUndoCompletion,
   useUpdateTask,
 } from '../data/queries'
-import { daysBetween, daysSince, fmtAgo, fmtDay, todayLocal } from '../lib/dates'
+import { daysBetween, daysSince, fmtAgo, fmtDay, fmtDue, todayLocal } from '../lib/dates'
 import { itemDone, nextSubtaskOrder } from '../lib/subtasks'
 import { dueText, taskState } from '../lib/task-state'
 import type { TaskWithLast } from '../lib/types'
@@ -70,14 +71,41 @@ export function TaskDetailScreen() {
 
   const s = taskState(task, task.last?.done_on ?? null)
   const who = (u: string) => nameFor(task.space_id, u)
-  const done = itemDone(task, subtasks)
+  const isGroup = task.is_group
+  // a bucket never completes, so a full checklist doesn't close it
+  const done = isGroup ? null : itemDone(task, subtasks)
   const doneCount = subtasks.filter((t) => t.last).length
+  const openItems = subtasks.length - doneCount
   // recurring tasks and subtasks themselves stay flat — one level only
   const canHaveSubtasks = task.kind === 'oneoff' && !task.parent_id
+  // a met deadline stops mattering; only a live one shows
+  const deadline = task.due_on && !done ? `due ${fmtDue(task.due_on)}` : null
+  const meta = isGroup
+    ? [
+        'group',
+        openItems === 1 ? '1 open' : `${openItems} open`,
+        doneCount > 0 ? `${doneCount} ticked off` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : [
+        task.kind === 'recurring' ? `every ${task.interval_days}d` : 'one-time',
+        deadline,
+        // with a checklist the count is the status; with a deadline the countdown
+        // is already the badge, and "not logged yet" only confuses either way
+        subtasks.length > 0
+          ? `${doneCount} of ${subtasks.length} done`
+          : deadline
+            ? null
+            : dueText(s),
+      ]
+        .filter(Boolean)
+        .join(' · ')
 
   function del() {
     if (!task) return
-    const extra = subtasks.length ? `, its ${subtasks.length} subtasks` : ''
+    const noun = isGroup ? 'items' : 'subtasks'
+    const extra = subtasks.length ? `, its ${subtasks.length} ${noun}` : ''
     if (!window.confirm(`Delete “${task.title}”${extra} and the whole history?`)) return
     deleteTask.mutate({ id: task.id })
     navigate('/')
@@ -96,6 +124,7 @@ export function TaskDetailScreen() {
       interval_days: null,
       sort_order: nextSubtaskOrder(subtasks),
       parent_id: task.id,
+      due_on: null, // deadlines live on the item, not its steps
       createdBy: uid,
     })
     setNewSubtask('') // input keeps focus so a whole checklist goes in one go
@@ -129,20 +158,18 @@ export function TaskDetailScreen() {
       )}
 
       <div className={`${cardCls} mb-4 flex items-center gap-4 p-4`}>
-        {subtasks.length > 0 ? (
+        {isGroup ? (
+          <GroupBadge open={openItems} size="lg" />
+        ) : subtasks.length > 0 ? (
           <ProgressRing done={doneCount} total={subtasks.length} size="lg" />
+        ) : task.due_on && !done ? (
+          <DueBadge dueOn={task.due_on} size="lg" />
         ) : (
           <DaysBadge task={task} size="lg" />
         )}
         <div className="min-w-0">
           <h1 className="text-xl font-bold leading-tight">{task.title}</h1>
-          <p className="mt-1 text-sm text-stone-500">
-            {task.kind === 'recurring' ? `every ${task.interval_days}d` : 'one-time'}
-            {/* with a checklist the count is the status; "not logged yet" only confuses */}
-            {subtasks.length > 0
-              ? ` · ${doneCount} of ${subtasks.length} done`
-              : dueText(s) && ` · ${dueText(s)}`}
-          </p>
+          <p className="mt-1 text-sm text-stone-500">{meta}</p>
           {done && (
             <p className="text-sm text-stone-500">
               done {fmtAgo(daysSince(done.done_on))} by {who(done.done_by)}
@@ -166,7 +193,7 @@ export function TaskDetailScreen() {
       )}
 
       {canHaveSubtasks && (
-        <Section title="Subtasks">
+        <Section title={isGroup ? 'Items' : 'Subtasks'}>
           {subtasks.length > 0 && (
             <ul className={`${cardCls} px-3 pb-1`}>
               {subtasks.map((sub) => (
@@ -208,7 +235,7 @@ export function TaskDetailScreen() {
           <form className="flex gap-2" onSubmit={addSubtask}>
             <input
               className={`${inputCls} flex-1`}
-              placeholder="Add a subtask"
+              placeholder={isGroup ? 'Add an item' : 'Add a subtask'}
               value={newSubtask}
               onChange={(e) => setNewSubtask(e.target.value)}
             />
@@ -218,23 +245,29 @@ export function TaskDetailScreen() {
           </form>
           {subtasks.length > 0 && (
             <p className="px-1 text-xs text-stone-400">
-              {task.last
-                ? 'Marked done by hand — remove the log below to reopen it.'
-                : doneCount === subtasks.length
-                  ? 'All done — this is off the backlog.'
-                  : 'Ticking the last one takes this off the backlog.'}
+              {isGroup
+                ? 'Ticked items leave the group and wait in Done — tap one here to put it back.'
+                : task.last
+                  ? 'Marked done by hand — remove the log below to reopen it.'
+                  : doneCount === subtasks.length
+                    ? 'All done — this is off the backlog.'
+                    : 'Ticking the last one takes this off the backlog.'}
             </p>
           )}
         </Section>
       )}
 
       <div className="mb-6 grid grid-cols-2 gap-2">
-        <button className={primaryBtn} onClick={() => logDone(task, todayLocal())}>
-          {subtasks.length > 0 ? 'Done anyway' : 'Done today'}
-        </button>
-        <button className={secondaryBtn} onClick={() => setBackdating(task)}>
-          Another day…
-        </button>
+        {!isGroup && (
+          <>
+            <button className={primaryBtn} onClick={() => logDone(task, todayLocal())}>
+              {subtasks.length > 0 ? 'Done anyway' : 'Done today'}
+            </button>
+            <button className={secondaryBtn} onClick={() => setBackdating(task)}>
+              Another day…
+            </button>
+          </>
+        )}
         <button className={secondaryBtn} onClick={() => setEditing(true)}>
           Edit
         </button>
@@ -248,40 +281,43 @@ export function TaskDetailScreen() {
           className="col-span-2 h-12 rounded-xl border border-red-200 font-semibold text-red-600 transition active:scale-[0.98] dark:border-red-950"
           onClick={del}
         >
-          Delete task
+          Delete {isGroup ? 'group' : 'task'}
         </button>
       </div>
 
-      <Section title="History">
-        {(history ?? []).length === 0 && <p className="px-1 text-sm text-stone-400">No logs yet.</p>}
-        {(history ?? []).map((h) => (
-          <div key={h.id} className={`${cardCls} flex items-center justify-between p-3 text-sm`}>
-            <span className="min-w-0 truncate">
-              {fmtDay(h.done_on)}{' '}
-              <span className="text-stone-400">
-                · {fmtAgo(daysSince(h.done_on))} · {who(h.done_by)}
+      {/* a group has no log of its own — its items each keep their own */}
+      {!isGroup && (
+        <Section title="History">
+          {(history ?? []).length === 0 && <p className="px-1 text-sm text-stone-400">No logs yet.</p>}
+          {(history ?? []).map((h) => (
+            <div key={h.id} className={`${cardCls} flex items-center justify-between p-3 text-sm`}>
+              <span className="min-w-0 truncate">
+                {fmtDay(h.done_on)}{' '}
+                <span className="text-stone-400">
+                  · {fmtAgo(daysSince(h.done_on))} · {who(h.done_by)}
+                </span>
               </span>
-            </span>
-            {h.done_by === uid && (
-              <button
-                aria-label="Remove this log"
-                className="shrink-0 p-1 text-stone-400"
-                onClick={() => undo.mutate({ completionId: h.id, taskId: task.id })}
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6" />
-                </svg>
-              </button>
-            )}
-          </div>
-        ))}
-      </Section>
+              {h.done_by === uid && (
+                <button
+                  aria-label="Remove this log"
+                  className="shrink-0 p-1 text-stone-400"
+                  onClick={() => undo.mutate({ completionId: h.id, taskId: task.id })}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6" />
+                  </svg>
+                </button>
+              )}
+            </div>
+          ))}
+        </Section>
+      )}
 
       <AddTaskSheet
         open={editing}
         onClose={() => setEditing(false)}
         task={task}
-        lockKind={!!task.parent_id || subtasks.length > 0}
+        lockKind={isGroup || !!task.parent_id || subtasks.length > 0}
       />
       <BackdateSheet
         open={backdating !== null}

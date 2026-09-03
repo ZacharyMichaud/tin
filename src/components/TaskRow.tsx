@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { daysSince, fmtAgo, todayLocal } from '../lib/dates'
-import { dueText, taskState, urgencyBadge } from '../lib/task-state'
+import { daysSince, fmtAgo, fmtDue, todayLocal } from '../lib/dates'
+import { deadlineState, dueText, taskState, urgencyBadge, urgencyText } from '../lib/task-state'
 import type { LastCompletion, TaskWithLast } from '../lib/types'
 import { usePress } from '../lib/use-press'
 import type { DragHandle } from './SortableList'
@@ -45,6 +45,30 @@ export function DaysBadge({ task, size = 'md' }: { task: TaskWithLast; size?: 'm
       <span className="mt-0.5 text-[9px] font-semibold uppercase tracking-wide opacity-70">
         {s.daysSince === null ? 'new' : s.daysSince === 1 ? 'day' : 'days'}
       </span>
+    </div>
+  )
+}
+
+/**
+ * The mirror of DaysBadge for a dated one-off: days *left* rather than days
+ * ago, same box, same urgency colours, so a countdown reads at the same glance
+ * as an elapsed count without being mistaken for one.
+ */
+export function DueBadge({ dueOn, size = 'md' }: { dueOn: string; size?: 'md' | 'lg' }) {
+  const { dueIn, urgency } = deadlineState(dueOn)
+  const dims = size === 'lg' ? 'h-20 w-20 rounded-2xl' : 'h-13 w-13 rounded-xl'
+  const num = size === 'lg' ? 'text-3xl' : 'text-lg'
+  const label = dueIn < 0 ? 'late' : dueIn === 0 ? 'today' : 'left'
+  return (
+    <div
+      className={`flex shrink-0 flex-col items-center justify-center ${dims} ${urgencyBadge[urgency]}`}
+      title={`due ${fmtDue(dueOn)}`}
+    >
+      <span className={`${num} font-bold leading-none tabular-nums`}>{Math.abs(dueIn)}</span>
+      <span className="mt-0.5 text-[9px] font-semibold uppercase tracking-wide opacity-70">
+        {label}
+      </span>
+      <span className="sr-only">days {label === 'late' ? 'late' : 'until due'}</span>
     </div>
   )
 }
@@ -217,6 +241,7 @@ export function BacklogRow({
   task,
   who,
   spaceName,
+  groupName,
   subtasks = [],
   doneCount = 0,
   done,
@@ -233,6 +258,8 @@ export function BacklogRow({
   task: TaskWithLast
   who: (userId: string) => string
   spaceName?: string
+  /** Set once a ticked item has left its group: where it came from. */
+  groupName?: string
   subtasks?: TaskWithLast[]
   doneCount?: number
   /** Derived completion: own log, or the last subtask if the checklist is clear. */
@@ -251,6 +278,11 @@ export function BacklogRow({
   const isDone = done !== null
   const hasSubtasks = subtasks.length > 0
   const open = hasSubtasks && !!expanded
+  // a live deadline takes the hero slot and pushes the done button to the
+  // trailing edge, so the row reads like a due-list row. A checklist keeps its
+  // ring (progress is the state there) and the date drops into the subtitle.
+  const deadline = !isDone && task.due_on ? deadlineState(task.due_on) : null
+  const countdown = deadline !== null && !hasSubtasks
 
   const sub = isDone
     ? `done ${fmtAgo(daysSince(done.done_on))} · ${who(done.done_by)}`
@@ -264,28 +296,32 @@ export function BacklogRow({
         className={`${rowMain} ${open ? 'rounded-t-2xl' : 'rounded-2xl'}`}
         onClick={() => navigate(`/task/${task.id}`)}
       >
-        <div onClick={(e) => e.stopPropagation()}>
-          {hasSubtasks ? (
-            // no done button: the item's state is its checklist. Tapping the
-            // ring expands rather than completing, so nothing is logged by
-            // accident on the way to seeing what's left.
-            <button
-              type="button"
-              onClick={onToggleExpand}
-              aria-expanded={open}
-              aria-label={`${open ? 'Hide' : 'Show'} subtasks of “${task.title}”`}
-            >
-              <ProgressRing done={doneCount} total={subtasks.length} />
-            </button>
-          ) : (
-            <DoneButton
-              filled={isDone}
-              onDone={isDone ? onUndo : onDone}
-              onLongPress={isDone ? undefined : onBackdate}
-              label={isDone ? `Un-log “${task.title}”` : `Log “${task.title}” done`}
-            />
-          )}
-        </div>
+        {countdown ? (
+          <DueBadge dueOn={task.due_on!} />
+        ) : (
+          <div onClick={(e) => e.stopPropagation()}>
+            {hasSubtasks ? (
+              // no done button: the item's state is its checklist. Tapping the
+              // ring expands rather than completing, so nothing is logged by
+              // accident on the way to seeing what's left.
+              <button
+                type="button"
+                onClick={onToggleExpand}
+                aria-expanded={open}
+                aria-label={`${open ? 'Hide' : 'Show'} subtasks of “${task.title}”`}
+              >
+                <ProgressRing done={doneCount} total={subtasks.length} />
+              </button>
+            ) : (
+              <DoneButton
+                filled={isDone}
+                onDone={isDone ? onUndo : onDone}
+                onLongPress={isDone ? undefined : onBackdate}
+                label={isDone ? `Un-log “${task.title}”` : `Log “${task.title}” done`}
+              />
+            )}
+          </div>
+        )}
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
@@ -297,9 +333,35 @@ export function BacklogRow({
                 {spaceName}
               </span>
             )}
+            {groupName && (
+              <span className="shrink-0 truncate rounded bg-stone-100 px-1.5 py-0.5 text-[10px] text-stone-500 dark:bg-stone-800 dark:text-stone-400">
+                {groupName}
+              </span>
+            )}
           </div>
-          {sub && <div className="truncate text-xs text-stone-500">{sub}</div>}
+          {(deadline || sub) && (
+            <div className="truncate text-xs text-stone-500">
+              {deadline && (
+                <span className={`font-medium ${urgencyText[deadline.urgency]}`}>
+                  due {fmtDue(task.due_on!)}
+                </span>
+              )}
+              {deadline && sub ? ' · ' : ''}
+              {sub}
+            </div>
+          )}
         </div>
+
+        {countdown && (
+          <div onClick={(e) => e.stopPropagation()}>
+            <DoneButton
+              filled={false}
+              onDone={onDone}
+              onLongPress={onBackdate}
+              label={`Log “${task.title}” done`}
+            />
+          </div>
+        )}
 
         {hasSubtasks && (
           <button

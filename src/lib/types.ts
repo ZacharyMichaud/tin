@@ -51,6 +51,10 @@ export type Database = {
           sort_order: number
           // set on subtasks: the backlog task they hang off (0003; one level only)
           parent_id: string | null
+          // a bucket that never completes, holding one-offs (0005)
+          is_group: boolean
+          // deadline for a top-level one-off (0004); null on everything else
+          due_on: string | null
           created_by: string
           created_at: string
         }
@@ -63,6 +67,8 @@ export type Database = {
           interval_days?: number | null
           sort_order?: number
           parent_id?: string | null
+          is_group?: boolean
+          due_on?: string | null
         }
         Update: {
           title?: string
@@ -72,6 +78,8 @@ export type Database = {
           archived?: boolean
           sort_order?: number
           parent_id?: string | null
+          is_group?: boolean
+          due_on?: string | null
         }
         Relationships: [
           {

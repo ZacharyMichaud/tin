@@ -44,3 +44,14 @@ export function fmtDay(s: string): string {
     year: parseLocal(s).getFullYear() === new Date().getFullYear() ? undefined : 'numeric',
   })
 }
+
+/** A deadline the way you'd say it out loud: "today", "Friday", "Sep 12". */
+export function fmtDue(s: string): string {
+  const n = daysBetween(todayLocal(), s)
+  if (n === 0) return 'today'
+  if (n === 1) return 'tomorrow'
+  if (n === -1) return 'yesterday'
+  // inside the coming week a weekday is easier to place than a date
+  if (n > 1 && n < 7) return parseLocal(s).toLocaleDateString(undefined, { weekday: 'long' })
+  return fmtDay(s)
+}

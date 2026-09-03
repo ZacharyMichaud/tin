@@ -192,6 +192,8 @@ export interface AddTaskVars {
   interval_days: number | null
   sort_order: number
   parent_id: string | null
+  is_group?: boolean
+  due_on: string | null
   createdBy: string
 }
 
@@ -209,6 +211,8 @@ export function useAddTask() {
         interval_days: v.interval_days,
         sort_order: v.sort_order,
         parent_id: v.parent_id,
+        is_group: v.is_group ?? false,
+        due_on: v.due_on,
       })
       if (error) throw error
     },
@@ -218,7 +222,8 @@ export function useAddTask() {
       const row: TaskWithLast = {
         id: v.id, space_id: v.space_id, title: v.title, notes: v.notes, kind: v.kind,
         interval_days: v.interval_days, archived: false, sort_order: v.sort_order,
-        parent_id: v.parent_id, created_by: v.createdBy,
+        parent_id: v.parent_id, due_on: v.due_on, is_group: v.is_group ?? false,
+        created_by: v.createdBy,
         created_at: new Date().toISOString(), last: null,
       }
       qc.setQueryData<TaskWithLast[]>(keys.tasks, (old) => [row, ...(old ?? [])])
