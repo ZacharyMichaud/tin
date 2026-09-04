@@ -49,7 +49,12 @@ export function DueScreen() {
   const dueNow = entries
     .filter((e) => e.s.urgency === 'new' || e.s.urgency === 'due' || e.s.urgency === 'overdue')
     .sort(bySoonest)
-  const upcoming = entries.filter((e) => e.s.urgency === 'soon').sort(bySoonest)
+  // 'ok' recurring chores belong here too: this screen lists every recurring
+  // task, not only the nagging ones. Dated backlog items can't land in this
+  // bucket while 'ok' — they're filtered out above and stay in the backlog.
+  const upcoming = entries
+    .filter((e) => e.s.urgency === 'soon' || e.s.urgency === 'ok')
+    .sort(bySoonest)
 
   const isExpanded = (i: BacklogItem) => expandOverride[i.task.id] ?? true
   const toggleSubtask = (s: TaskWithLast) =>
