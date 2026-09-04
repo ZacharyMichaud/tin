@@ -5,11 +5,11 @@ import type { SortUpdate } from '../lib/order'
 import { supabase } from '../lib/supabase'
 import type {
   CompletionRow,
-  Database,
   LastCompletion,
   SpaceWithMembers,
   TaskKind,
   TaskRow,
+  TaskUpdate,
   TaskWithLast,
 } from '../lib/types'
 
@@ -240,7 +240,7 @@ export function useAddTask() {
 export function useUpdateTask() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (v: { id: string; patch: Database['public']['Tables']['tasks']['Update'] }) => {
+    mutationFn: async (v: { id: string; patch: TaskUpdate }) => {
       if (DEMO) return
       const { error } = await supabase.from('tasks').update(v.patch).eq('id', v.id)
       if (error) throw error

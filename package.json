@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "icons": "node scripts/generate-icons.mjs"
+    "icons": "node scripts/generate-icons.mjs",
+    "types:gen": "node scripts/gen-types.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.50.0",
