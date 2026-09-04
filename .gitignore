@@ -4,3 +4,6 @@ dev-dist
 *.local
 .env
 .DS_Store
+
+# supabase CLI machine-local state (linked project ref, version cache)
+supabase/.temp/
