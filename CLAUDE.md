@@ -21,9 +21,12 @@ Sharing works through **spaces**: every task belongs to a space, every space has
 
 - **spaces** — `id, name, join_code, is_personal, created_by, created_at`
 - **space_members** — `space_id, user_id, display_name, joined_at` (display_name shown as "who did it")
-- **tasks** — `id, space_id, title, notes, kind ('recurring'|'oneoff'), interval_days, due_on, archived, created_by, created_at`
+- **tasks** — `id, space_id, title, notes, kind ('recurring'|'oneoff'), interval_days, due_on, sort_order, parent_id, is_group, archived, created_by, created_at`
   - One-offs have `interval_days null`; a one-off with any completion is "done". Same tap path as recurring.
   - `due_on` is an optional deadline on a top-level one-off (0004): the one thing an elapsed-time interval can't say. Recurring tasks and subtasks can't have one. It's a user-set attribute like `sort_order`, not derived state — the log still decides done.
+  - `sort_order` is the hand-arranged backlog position (0002) — a sparse double used as a fractional index, so one drag is one UPDATE rather than a renumber.
+  - `parent_id` makes a one-off a **subtask** of another one-off (0003, one level only, same space). Still nothing new stored about state: a checklist parent counts as done when it has its own completion, or when every subtask has one — untick one and it comes straight back out of Done.
+  - `is_group` flips that roll-up (0005). A **group** is a bucket you keep refilling — "things to buy" — so it never counts as done however much you tick off it, and never leaves the backlog. Its items aren't steps of one job, they're ordinary one-offs filed together: tick one and it leaves the group to stand on its own in Done, where undo puts it back. Groups are always top-level one-offs, enforced by a trigger. **Checklist vs group is the whole distinction: one finishes, the other doesn't.**
 - **task_completions** — `id, task_id, done_by, done_on date, created_at` (grows forever; powers everything)
 
 Supabase gotchas already baked into the migration (both learned on the gym tracker):
@@ -34,9 +37,9 @@ Supabase gotchas already baked into the migration (both learned on the gym track
 ## Screens
 Bottom tab bar: **Due / Backlog / Manage**. Tasks from all my spaces are merged into one list (small space chip on shared tasks).
 1. **Due** (home) — every recurring task, split into "Due now" and "Coming up", sorted most-overdue first. The hero number on each row is **days since last done**. A dated backlog item joins this list once its deadline is within a week (`DEADLINE_SOON_DAYS`), so the Due tab never lies; further-off ones stay in the backlog.
-2. **Backlog** — one-time tasks, open ones on top, done ones collapse below with undo. Dated ones sit in their own "Deadlines" section above the hand-sorted rest, soonest first, and show a **days-left** countdown instead of days-ago.
+2. **Backlog** — one-time tasks, open ones on top, done ones collapse below with undo. Dated ones sit in their own "Deadlines" section above the hand-sorted rest, soonest first, and show a **days-left** countdown instead of days-ago. A **group** is one collapsible card: an open-item count where the days badge would be (not a progress ring — a ring reads as progress towards finishing, and a bucket never finishes), no done button anywhere on it, and an inline "add an item" row. Ticked items leave the group and show up in Done tagged with the group they came from. The header counts a group's open items one apiece, but a checklist parent as a single thing to do.
 3. **Manage** — spaces (create/join/rename, join code, members, my display name), archived tasks, account. Utilitarian is fine.
-4. **Task detail** (`/task/:id`) — status, log-for-another-day, edit/archive/delete, completion history, cadence stat ("usually every ~16d").
+4. **Task detail** (`/task/:id`) — status, log-for-another-day, edit/archive/delete, completion history, cadence stat ("usually every ~16d"). A group's page instead shows its Items list — ticked ones included, since that's where you go to un-tick one once the snackbar is gone — and drops the completion buttons and its own History, because a bucket has nothing to log.
 
 ## UX rules (non-negotiable)
 - Logging a completion is **one tap on a ≥52px target**, optimistic (client-generated uuid), with an **Undo snackbar**. No confirm dialogs on the happy path.
