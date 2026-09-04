@@ -25,6 +25,10 @@ concurrency:
 jobs:
   push:
     runs-on: ubuntu-latest
+    # The Supabase credentials are environment secrets, not repository ones, so
+    # the job has to claim the environment or secrets.* silently resolves empty
+    # (an unset secret is blank in the log, where a real one shows as ***).
+    environment: Production
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
