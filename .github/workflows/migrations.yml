@@ -36,9 +36,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Pinned rather than `latest`: resolving "latest" costs an unauthenticated
+      # GitHub API call that rate-limits on shared runners, and a migration run
+      # shouldn't depend on which CLI happened to ship that morning.
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.116.0
 
       - name: Link the project
         run: supabase link --project-ref "$PROJECT_ID"
