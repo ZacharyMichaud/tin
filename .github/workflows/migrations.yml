@@ -1,0 +1,48 @@
+name: Apply Supabase migrations
+
+# Applies any migration that lands on main to the live project, so a committed
+# migration and a deployed one stop being two different things.
+#
+# `supabase db push` compares supabase/migrations/*.sql against the
+# supabase_migrations.schema_migrations table in the project and runs only what
+# is missing, so re-running this is a no-op rather than a second application.
+#
+# Note the workflow file itself is NOT in `paths`: editing it shouldn't fire a
+# migration run. Use the Actions tab's "Run workflow" button to trigger by hand.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**'
+  workflow_dispatch:
+
+concurrency:
+  group: supabase-migrations
+  # never cancel a run mid-migration — a half-applied migration is far worse
+  # than a queued one
+  cancel-in-progress: false
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link the project
+        run: supabase link --project-ref "$PROJECT_ID"
+
+      # printed before pushing so a failed run shows which migrations the
+      # project thought were outstanding
+      - name: Show migration state
+        run: supabase migration list
+
+      - name: Apply pending migrations
+        run: supabase db push
