@@ -26,15 +26,7 @@ export type SpaceRow = Tables['spaces']['Row']
 export type MemberRow = Tables['space_members']['Row']
 export type CompletionRow = Tables['task_completions']['Row']
 
-// `group_name` is excluded deliberately: it is live in the database but in no
-// migration and no code — an orphan of the abandoned first pass at groups (the
-// 0002_task_groups.sql that commit 411022d deleted after it had already been
-// applied). Keeping it out means the app can't start depending on a column a
-// rebuild from supabase/migrations/ wouldn't produce. The drift itself still
-// wants a migration to settle it one way or the other.
-export type TaskRow = Omit<Tables['tasks']['Row'], 'kind' | 'group_name'> & {
-  kind: TaskKind
-}
+export type TaskRow = Omit<Tables['tasks']['Row'], 'kind'> & { kind: TaskKind }
 
 /** Columns a client is granted on insert (0001, plus the additive grants since). */
 export type TaskInsert = Pick<

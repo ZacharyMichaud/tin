@@ -115,7 +115,6 @@ export type Database = {
           created_at: string
           created_by: string
           due_on: string | null
-          group_name: string | null
           id: string
           interval_days: number | null
           is_group: boolean
@@ -131,7 +130,6 @@ export type Database = {
           created_at?: string
           created_by?: string
           due_on?: string | null
-          group_name?: string | null
           id?: string
           interval_days?: number | null
           is_group?: boolean
@@ -147,7 +145,6 @@ export type Database = {
           created_at?: string
           created_by?: string
           due_on?: string | null
-          group_name?: string | null
           id?: string
           interval_days?: number | null
           is_group?: boolean

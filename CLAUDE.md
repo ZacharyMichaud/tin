@@ -60,7 +60,7 @@ Bottom tab bar: **Due / Backlog / Manage**. Tasks from all my spaces are merged 
 
 ## Conventions
 - TypeScript strict. Row shapes are **generated from the live database** into `src/lib/database.types.ts` (`npm run types:gen`, CLI pinned to match CI) — never edit it by hand. `src/lib/types.ts` is the thin curated layer over it, and exists for the two things `gen types` can't see: `kind` is `text` + CHECK rather than an enum so it generates as `string` (narrowed back to a union), and column grants decide what a client may write (so `TaskInsert`/`TaskUpdate` list only granted columns, making an ungranted write a type error instead of a runtime failure).
-- Generated types are also the drift detector: they surfaced `group_name`, a column live in the database but in no migration — an orphan of the abandoned first pass at groups. It's excluded from `TaskRow` and still wants a migration to settle it.
+- Generated types are also the drift detector: on their first run they surfaced `group_name`, a column live in the database but in no migration — an orphan of the abandoned first pass at groups. Dropped in 0006, which is guarded so it refuses if any row carries a value and no-ops on a database that never had the column.
 - Components small; server state lives in TanStack Query, no separate store.
 - Migrations as SQL files in `supabase/migrations/`, committed.
 - Mobile viewport first; test at 380px width.
