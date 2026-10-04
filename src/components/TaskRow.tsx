@@ -277,7 +277,11 @@ export function BacklogRow({
   const navigate = useNavigate()
   const isDone = done !== null
   const hasSubtasks = subtasks.length > 0
-  const open = hasSubtasks && !!expanded
+  // ticked steps drop out of the list: the ring already counts them, and the
+  // undo snackbar or the task's own page is where you go to un-tick one
+  const remaining = subtasks.filter((s) => !s.last)
+  const canExpand = remaining.length > 0
+  const open = canExpand && !!expanded
   // a live deadline takes the hero slot and pushes the done button to the
   // trailing edge, so the row reads like a due-list row. A checklist keeps its
   // ring (progress is the state there) and the date drops into the subtitle.
@@ -304,14 +308,18 @@ export function BacklogRow({
               // no done button: the item's state is its checklist. Tapping the
               // ring expands rather than completing, so nothing is logged by
               // accident on the way to seeing what's left.
-              <button
-                type="button"
-                onClick={onToggleExpand}
-                aria-expanded={open}
-                aria-label={`${open ? 'Hide' : 'Show'} subtasks of “${task.title}”`}
-              >
+              canExpand ? (
+                <button
+                  type="button"
+                  onClick={onToggleExpand}
+                  aria-expanded={open}
+                  aria-label={`${open ? 'Hide' : 'Show'} subtasks of “${task.title}”`}
+                >
+                  <ProgressRing done={doneCount} total={subtasks.length} />
+                </button>
+              ) : (
                 <ProgressRing done={doneCount} total={subtasks.length} />
-              </button>
+              )
             ) : (
               <DoneButton
                 filled={isDone}
@@ -363,7 +371,7 @@ export function BacklogRow({
           </div>
         )}
 
-        {hasSubtasks && (
+        {canExpand && (
           <button
             type="button"
             onClick={(e) => {
@@ -405,7 +413,7 @@ export function BacklogRow({
 
       {open && (
         <ul className="border-t border-stone-100 px-3 pb-1 pl-4 dark:border-stone-800">
-          {subtasks.map((s) => (
+          {remaining.map((s) => (
             <SubtaskRow
               key={s.id}
               task={s}
