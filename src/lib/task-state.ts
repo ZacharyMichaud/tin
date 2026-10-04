@@ -10,10 +10,17 @@ export interface TaskState {
 }
 
 /**
- * How far ahead a deadline starts nagging. Recurring tasks scale their window
- * off the interval; a deadline has no interval, so "this week" is the window.
+ * How far ahead a deadline turns amber. Recurring tasks scale their window off
+ * the interval; a deadline has no interval, so "this week" is the window. Colour
+ * only — whether it's up next is UP_NEXT_DAYS.
  */
 export const DEADLINE_SOON_DAYS = 7
+
+/**
+ * "The next couple of days": how close anything with a date — a chore's next
+ * due day or a one-off's deadline — has to be to join Up next on its own.
+ */
+export const UP_NEXT_DAYS = 2
 
 function urgencyFor(dueIn: number, soonWindow: number): Urgency {
   return dueIn < 0 ? 'overdue' : dueIn === 0 ? 'due' : dueIn <= soonWindow ? 'soon' : 'ok'
@@ -41,8 +48,21 @@ export function taskState(
   const ds = daysSince(lastDoneOn)
   if (!task.interval_days) return { daysSince: ds, dueIn: null, urgency: 'ok' }
   const dueIn = task.interval_days - ds
+  // just done is never pressing — without this a daily chore's one-day window
+  // would turn it amber (and keep it up next) the moment you logged it
+  if (ds <= 0) return { daysSince: ds, dueIn, urgency: 'ok' }
   const soonWindow = Math.min(7, Math.max(1, Math.round(task.interval_days * 0.25)))
   return { daysSince: ds, dueIn, urgency: urgencyFor(dueIn, soonWindow) }
+}
+
+/**
+ * Belongs in Up next on its own clock: late, due today, never logged, or due
+ * within UP_NEXT_DAYS. Short chores join later than that — their amber window
+ * is narrower — so a three-day plant chore isn't up next two days in three.
+ * An undated one-off has no clock (dueIn null) and only gets there by a pin.
+ */
+export function isPressing(s: TaskState): boolean {
+  return s.dueIn !== null && s.dueIn <= UP_NEXT_DAYS && s.urgency !== 'ok'
 }
 
 export function dueText(state: TaskState): string {

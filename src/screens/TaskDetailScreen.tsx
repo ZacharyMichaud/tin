@@ -6,8 +6,16 @@ import { AddTaskSheet } from '../components/AddTaskSheet'
 import { BackdateSheet } from '../components/BackdateSheet'
 import { GroupBadge } from '../components/GroupRow'
 import { DaysBadge, DueBadge, ProgressRing, SubtaskRow } from '../components/TaskRow'
-import { cardCls, inputCls, primaryBtn, secondaryBtn, Section } from '../components/ui'
-import { useLogDone } from '../data/helpers'
+import {
+  BackButton,
+  cardCls,
+  inputCls,
+  PinIcon,
+  primaryBtn,
+  secondaryBtn,
+  Section,
+} from '../components/ui'
+import { useLogDone, usePin } from '../data/helpers'
 import {
   useAddTask,
   useDeleteTask,
@@ -30,6 +38,7 @@ export function TaskDetailScreen() {
   const { data: history } = useHistory(id ?? '')
   const nameFor = useMemberNames(uid)
   const logDone = useLogDone()
+  const pin = usePin()
   const addTask = useAddTask()
   const updateTask = useUpdateTask()
   const deleteTask = useDeleteTask()
@@ -80,6 +89,10 @@ export function TaskDetailScreen() {
   const canHaveSubtasks = task.kind === 'oneoff' && !task.parent_id
   // a met deadline stops mattering; only a live one shows
   const deadline = task.due_on && !done ? `due ${fmtDue(task.due_on)}` : null
+  // pinning is for open, top-level one-offs (0007); a done one keeps its pin
+  // so an undo puts it back up next, but there's nothing to toggle meanwhile
+  const canPin = task.kind === 'oneoff' && !task.parent_id && !isGroup && !task.archived && !done
+  const pinned = !!task.pinned_at
   const meta = isGroup
     ? [
         'group',
@@ -90,6 +103,7 @@ export function TaskDetailScreen() {
         .join(' · ')
     : [
         task.kind === 'recurring' ? `every ${task.interval_days}d` : 'one-time',
+        pinned && !done ? 'pinned' : null,
         deadline,
         // with a checklist the count is the status; with a deadline the countdown
         // is already the badge, and "not logged yet" only confuses either way
@@ -136,16 +150,9 @@ export function TaskDetailScreen() {
   }
 
   return (
-    <div className="px-4 pb-32 pt-4">
-      <button
-        className="mb-4 flex items-center gap-1 text-sm text-stone-500"
-        onClick={() => navigate(-1)}
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M15 18l-6-6 6-6" />
-        </svg>
-        Back
-      </button>
+    // clears the snackbar, which no longer has a tab bar to sit on
+    <div className="px-4 pt-4 pb-[calc(9rem+env(safe-area-inset-bottom))]">
+      <BackButton />
 
       {parent && (
         <button
@@ -250,8 +257,8 @@ export function TaskDetailScreen() {
                 : task.last
                   ? 'Marked done by hand — remove the log below to reopen it.'
                   : doneCount === subtasks.length
-                    ? 'All done — this is off the backlog.'
-                    : 'Ticking the last one takes this off the backlog.'}
+                    ? 'All done — it’s in Done now.'
+                    : 'Ticking the last one moves this to Done.'}
             </p>
           )}
         </Section>
@@ -267,6 +274,19 @@ export function TaskDetailScreen() {
               Another day…
             </button>
           </>
+        )}
+        {canPin && (
+          <button
+            className={`col-span-2 flex items-center justify-center gap-2 ${
+              pinned
+                ? 'h-12 rounded-xl border border-accent px-4 font-semibold text-accent transition active:scale-[0.98]'
+                : secondaryBtn
+            }`}
+            onClick={() => pin(task, !pinned)}
+          >
+            <PinIcon size={18} filled={pinned} />
+            {pinned ? 'Unpin' : 'Pin to Up next'}
+          </button>
         )}
         <button className={secondaryBtn} onClick={() => setEditing(true)}>
           Edit

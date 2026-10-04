@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { useSession, useUid } from '../auth/useSession'
 import { useSnackbar } from '../components/Snackbar'
-import { cardCls, inputCls, primaryBtn, Section, secondaryBtn } from '../components/ui'
+import { BackButton, cardCls, inputCls, primaryBtn, Section, secondaryBtn } from '../components/ui'
 import {
   useCreateSpace,
   useDeleteSpace,
@@ -83,7 +83,9 @@ export function ManageScreen() {
   }
 
   return (
-    <div className="px-4 pb-36 pt-6">
+    // clears the snackbar, which no longer has a tab bar to sit on
+    <div className="px-4 pt-4 pb-[calc(9rem+env(safe-area-inset-bottom))]">
+      <BackButton />
       <header className="mb-5">
         <div className="text-xs font-bold uppercase tracking-widest text-accent">tin</div>
         <h1 className="text-2xl font-bold">Manage</h1>

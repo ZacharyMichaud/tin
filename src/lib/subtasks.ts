@@ -44,9 +44,8 @@ export function itemDone(
 }
 
 /**
- * Everything the Backlog screen shows as a row of its own, keeping the
- * hand-sorted order useTasks returns: top-level items, groups, and the ticked
- * items that have left a group. Archived tasks drop out at both levels, so
+ * Every one-off that gets a row of its own on the home list: top-level items,
+ * groups, and the ticked items that have left a group. Archived tasks drop out at both levels, so
  * archiving a subtask stops it blocking its parent.
  */
 export function backlogItems(tasks: TaskWithLast[]): BacklogItem[] {
@@ -99,15 +98,6 @@ export function backlogItems(tasks: TaskWithLast[]): BacklogItem[] {
     )
   }
   return items
-}
-
-/**
- * What the header counts. A checklist parent is one thing to do however many
- * steps it breaks into; a group is none of its own, because it's a container —
- * its open items are the real tasks, so they count one apiece.
- */
-export function openCount(open: BacklogItem[]): number {
-  return open.reduce((n, i) => n + (i.isGroup ? i.subtasks.length : 1), 0)
 }
 
 /** Where a new subtask goes: the end of its parent's checklist. */

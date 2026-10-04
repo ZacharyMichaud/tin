@@ -3,7 +3,8 @@ import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { TaskWithLast } from '../lib/types'
 import type { DragHandle } from './SortableList'
-import { SubtaskRow } from './TaskRow'
+import { DragGrip, SubtaskRow } from './TaskRow'
+import { Chevron } from './ui'
 
 /**
  * Open-item count, standing in for the days badge on a group. Deliberately not
@@ -26,7 +27,7 @@ export function GroupBadge({ open, size = 'md' }: { open: number; size?: 'md' | 
 }
 
 /**
- * A group on the backlog: a bucket of one-off tasks that never completes.
+ * A group in the backlog: a bucket of one-off tasks that never completes.
  *
  * There is no done button anywhere on the row — the only thing you can finish
  * is an item — and ticking an item takes it straight out of the list, so what
@@ -94,6 +95,8 @@ export function GroupRow({
         }`}
         onClick={() => navigate(`/task/${task.id}`)}
       >
+        {handle && <DragGrip handle={handle} title={task.title} />}
+
         <button
           type="button"
           onClick={(e) => {
@@ -128,32 +131,8 @@ export function GroupRow({
           aria-label={`${open ? 'Hide' : 'Show'} the items in “${task.title}”`}
           className="flex h-13 w-9 shrink-0 items-center justify-center text-stone-400"
         >
-          <svg
-            width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-            className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
-          >
-            <path d="M6 9l6 6 6-6" />
-          </svg>
+          <Chevron open={open} />
         </button>
-
-        {handle && (
-          <button
-            type="button"
-            {...handle}
-            aria-label={`Reorder “${task.title}” — hold and drag, or use the arrow keys`}
-            className="-mr-2 flex h-13 w-11 shrink-0 cursor-grab items-center justify-center rounded-lg text-stone-300 active:cursor-grabbing dark:text-stone-600"
-          >
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor" aria-hidden="true">
-              <circle cx="6.5" cy="4" r="1.4" />
-              <circle cx="11.5" cy="4" r="1.4" />
-              <circle cx="6.5" cy="9" r="1.4" />
-              <circle cx="11.5" cy="9" r="1.4" />
-              <circle cx="6.5" cy="14" r="1.4" />
-              <circle cx="11.5" cy="14" r="1.4" />
-            </svg>
-          </button>
-        )}
       </div>
 
       {open && (

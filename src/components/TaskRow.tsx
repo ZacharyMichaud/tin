@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { daysSince, fmtAgo, fmtDue, todayLocal } from '../lib/dates'
+import { daysSince, fmtAgo, fmtDue, localDayOf, todayLocal } from '../lib/dates'
 import { deadlineState, dueText, taskState, urgencyBadge, urgencyText } from '../lib/task-state'
 import type { LastCompletion, TaskWithLast } from '../lib/types'
 import { usePress } from '../lib/use-press'
 import type { DragHandle } from './SortableList'
+import { Chevron, PinIcon } from './ui'
 
 export function DoneButton({
   filled,
@@ -237,7 +238,49 @@ export function RecurringRow({
   )
 }
 
-export function BacklogRow({
+/** The pin, standing in for the days badge on a pinned one-off with no date. */
+export function PinTile() {
+  return (
+    <div className="flex h-13 w-13 shrink-0 flex-col items-center justify-center rounded-xl bg-accent/10 text-accent">
+      <PinIcon size={18} filled />
+      <span className="mt-0.5 text-[9px] font-semibold uppercase tracking-wide opacity-70">
+        pinned
+      </span>
+    </div>
+  )
+}
+
+/** The reorder handle, on the leading edge of a hand-sorted backlog row. */
+export function DragGrip({ handle, title }: { handle: DragHandle; title: string }) {
+  return (
+    <button
+      type="button"
+      {...handle}
+      aria-label={`Reorder “${title}” — hold and drag, or use the arrow keys`}
+      className="-ml-2 -mr-1 flex h-13 w-9 shrink-0 cursor-grab items-center justify-center rounded-lg text-stone-300 active:cursor-grabbing dark:text-stone-600"
+    >
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor" aria-hidden="true">
+        <circle cx="6.5" cy="4" r="1.4" />
+        <circle cx="11.5" cy="4" r="1.4" />
+        <circle cx="6.5" cy="9" r="1.4" />
+        <circle cx="11.5" cy="9" r="1.4" />
+        <circle cx="6.5" cy="14" r="1.4" />
+        <circle cx="11.5" cy="14" r="1.4" />
+      </svg>
+    </button>
+  )
+}
+
+/**
+ * A one-off wherever it sits on the home list: a plain item, a checklist, or a
+ * ticked item that has left its group. The leading tile says why the row is
+ * where it is — a deadline countdown, checklist progress, or the pin — and a
+ * plain backlog item has none, because being in the backlog needs no
+ * explaining. The done button sits on the trailing edge, the same column as
+ * every chore's, so the thumb finds it in one place in every section and it
+ * doesn't jump sides when an item is pinned.
+ */
+export function OneOffRow({
   task,
   who,
   spaceName,
@@ -282,17 +325,23 @@ export function BacklogRow({
   const remaining = subtasks.filter((s) => !s.last)
   const canExpand = remaining.length > 0
   const open = canExpand && !!expanded
-  // a live deadline takes the hero slot and pushes the done button to the
-  // trailing edge, so the row reads like a due-list row. A checklist keeps its
+  // a live deadline takes the hero slot as a countdown. A checklist keeps its
   // ring (progress is the state there) and the date drops into the subtitle.
   const deadline = !isDone && task.due_on ? deadlineState(task.due_on) : null
   const countdown = deadline !== null && !hasSubtasks
+  const pinned = !isDone && !!task.pinned_at
+  // with no date or checklist to show, the pin itself is why it's up next
+  const pinTile = pinned && !countdown && !hasSubtasks
 
   const sub = isDone
     ? `done ${fmtAgo(daysSince(done.done_on))} · ${who(done.done_by)}`
     : hasSubtasks
       ? `${subtasks.length - doneCount} left`
-      : (task.notes ?? '')
+      : pinTile
+        ? [`pinned ${fmtAgo(daysSince(localDayOf(task.pinned_at!)))}`, task.notes]
+            .filter(Boolean)
+            .join(' · ')
+        : (task.notes ?? '')
 
   return (
     <div className={`${rowShell} ${dragging ? 'shadow-xl ring-2 ring-accent/40' : ''}`}>
@@ -300,42 +349,43 @@ export function BacklogRow({
         className={`${rowMain} ${open ? 'rounded-t-2xl' : 'rounded-2xl'}`}
         onClick={() => navigate(`/task/${task.id}`)}
       >
+        {handle && <DragGrip handle={handle} title={task.title} />}
+
         {countdown ? (
           <DueBadge dueOn={task.due_on!} />
-        ) : (
+        ) : hasSubtasks ? (
+          // no done button: the item's state is its checklist. Tapping the
+          // ring expands rather than completing, so nothing is logged by
+          // accident on the way to seeing what's left.
           <div onClick={(e) => e.stopPropagation()}>
-            {hasSubtasks ? (
-              // no done button: the item's state is its checklist. Tapping the
-              // ring expands rather than completing, so nothing is logged by
-              // accident on the way to seeing what's left.
-              canExpand ? (
-                <button
-                  type="button"
-                  onClick={onToggleExpand}
-                  aria-expanded={open}
-                  aria-label={`${open ? 'Hide' : 'Show'} subtasks of “${task.title}”`}
-                >
-                  <ProgressRing done={doneCount} total={subtasks.length} />
-                </button>
-              ) : (
+            {canExpand ? (
+              <button
+                type="button"
+                onClick={onToggleExpand}
+                aria-expanded={open}
+                aria-label={`${open ? 'Hide' : 'Show'} subtasks of “${task.title}”`}
+              >
                 <ProgressRing done={doneCount} total={subtasks.length} />
-              )
+              </button>
             ) : (
-              <DoneButton
-                filled={isDone}
-                onDone={isDone ? onUndo : onDone}
-                onLongPress={isDone ? undefined : onBackdate}
-                label={isDone ? `Un-log “${task.title}”` : `Log “${task.title}” done`}
-              />
+              <ProgressRing done={doneCount} total={subtasks.length} />
             )}
           </div>
-        )}
+        ) : pinTile ? (
+          <PinTile />
+        ) : null}
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <span className={`truncate font-medium ${isDone ? 'text-stone-400 line-through dark:text-stone-500' : ''}`}>
               {task.title}
             </span>
+            {pinned && !pinTile && (
+              <span className="shrink-0 text-accent" title="Pinned to Up next">
+                <PinIcon size={12} filled />
+                <span className="sr-only">pinned</span>
+              </span>
+            )}
             {spaceName && (
               <span className="shrink-0 rounded bg-stone-100 px-1.5 py-0.5 text-[10px] text-stone-500 dark:bg-stone-800 dark:text-stone-400">
                 {spaceName}
@@ -360,13 +410,13 @@ export function BacklogRow({
           )}
         </div>
 
-        {countdown && (
+        {!hasSubtasks && (
           <div onClick={(e) => e.stopPropagation()}>
             <DoneButton
-              filled={false}
-              onDone={onDone}
-              onLongPress={onBackdate}
-              label={`Log “${task.title}” done`}
+              filled={isDone}
+              onDone={isDone ? onUndo : onDone}
+              onLongPress={isDone ? undefined : onBackdate}
+              label={isDone ? `Un-log “${task.title}”` : `Log “${task.title}” done`}
             />
           </div>
         )}
@@ -382,31 +432,7 @@ export function BacklogRow({
             aria-label={`${open ? 'Hide' : 'Show'} subtasks of “${task.title}”`}
             className="flex h-13 w-9 shrink-0 items-center justify-center text-stone-400"
           >
-            <svg
-              width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-              className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
-            >
-              <path d="M6 9l6 6 6-6" />
-            </svg>
-          </button>
-        )}
-
-        {handle && (
-          <button
-            type="button"
-            {...handle}
-            aria-label={`Reorder “${task.title}” — hold and drag, or use the arrow keys`}
-            className="-mr-2 flex h-13 w-11 shrink-0 cursor-grab items-center justify-center rounded-lg text-stone-300 active:cursor-grabbing dark:text-stone-600"
-          >
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor" aria-hidden="true">
-              <circle cx="6.5" cy="4" r="1.4" />
-              <circle cx="11.5" cy="4" r="1.4" />
-              <circle cx="6.5" cy="9" r="1.4" />
-              <circle cx="11.5" cy="9" r="1.4" />
-              <circle cx="6.5" cy="14" r="1.4" />
-              <circle cx="11.5" cy="14" r="1.4" />
-            </svg>
+            <Chevron open={open} />
           </button>
         )}
       </div>

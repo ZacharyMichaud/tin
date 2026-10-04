@@ -3,33 +3,50 @@ import { useUid } from '../auth/useSession'
 import { useAddTask, useSpaces, useTasks } from '../data/queries'
 import { topSortOrder } from '../lib/order'
 import { Sheet } from './Sheet'
+import { useSnackbar } from './Snackbar'
 import { inputCls, primaryBtn } from './ui'
 
 /**
  * Creating a group. Deliberately not another mode of AddTaskSheet: a group has
  * no cadence, no deadline and nothing to log, so all it needs is a name and a
- * space. The items go in afterwards, straight from the row on the backlog.
+ * space. The items go in afterwards, straight from the group's row.
  */
-export function NewGroupSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function NewGroupSheet({
+  open,
+  onClose,
+  initialName = '',
+  initialSpaceId = null,
+}: {
+  open: boolean
+  onClose: () => void
+  /** What the new-task sheet held before "Make a group instead". */
+  initialName?: string
+  initialSpaceId?: string | null
+}) {
   const uid = useUid()
   const { data: spaces } = useSpaces()
   const { data: tasks } = useTasks()
   const addTask = useAddTask()
+  const snackbar = useSnackbar()
 
   const [name, setName] = useState('')
   const [spaceId, setSpaceId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
-    setName('')
+    setName(initialName)
     const remembered = localStorage.getItem('tin-last-space')
+    const known = (id: string | null) => (spaces?.some((s) => s.id === id) ? id : null)
     setSpaceId(
-      (spaces?.some((s) => s.id === remembered) ? remembered : null) ??
+      // a space picked in the new-task sheet wins: a shared shopping list made
+      // there shouldn't quietly land in the personal space instead
+      known(initialSpaceId) ??
+        known(remembered) ??
         spaces?.find((s) => s.is_personal)?.id ??
         spaces?.[0]?.id ??
         null,
     )
-  }, [open, spaces])
+  }, [open, spaces, initialName, initialSpaceId])
 
   function save() {
     const title = name.trim()
@@ -48,6 +65,8 @@ export function NewGroupSheet({ open, onClose }: { open: boolean; onClose: () =>
       createdBy: uid,
     })
     localStorage.setItem('tin-last-space', spaceId)
+    // it lands at the top of the backlog, which may be folded or off screen
+    snackbar(`Added “${title}” to Backlog`)
     onClose()
   }
 

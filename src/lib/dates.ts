@@ -21,6 +21,11 @@ export function daysBetween(a: string, b: string): number {
   return Math.round((parseLocal(b).getTime() - parseLocal(a).getTime()) / 86_400_000)
 }
 
+/** The local calendar day a timestamp falls on, e.g. when something was pinned. */
+export function localDayOf(iso: string): string {
+  return toStr(new Date(iso))
+}
+
 export function daysSince(s: string): number {
   return daysBetween(s, todayLocal())
 }

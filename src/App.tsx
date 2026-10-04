@@ -3,14 +3,12 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthScreen } from './auth/AuthScreen'
 import { SessionProvider, useSessionState } from './auth/useSession'
 import { SnackbarProvider } from './components/Snackbar'
-import { TabBar } from './components/TabBar'
 import { primaryBtn } from './components/ui'
 import { useEnsurePersonalSpace } from './data/queries'
 import { useRealtimeSync } from './data/realtime'
 import { DEMO, seedDemo } from './lib/demo'
 import { configured } from './lib/supabase'
-import { BacklogScreen } from './screens/BacklogScreen'
-import { DueScreen } from './screens/DueScreen'
+import { HomeScreen } from './screens/HomeScreen'
 import { ManageScreen } from './screens/ManageScreen'
 import { TaskDetailScreen } from './screens/TaskDetailScreen'
 
@@ -51,13 +49,13 @@ function Shell() {
   return (
     <div className="mx-auto min-h-dvh max-w-md">
       <Routes>
-        <Route path="/" element={<DueScreen />} />
-        <Route path="/backlog" element={<BacklogScreen />} />
+        <Route path="/" element={<HomeScreen />} />
+        {/* Due and Backlog were merged into the home list */}
+        <Route path="/backlog" element={<Navigate to="/" replace />} />
         <Route path="/manage" element={<ManageScreen />} />
         <Route path="/task/:id" element={<TaskDetailScreen />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-      <TabBar />
     </div>
   )
 }

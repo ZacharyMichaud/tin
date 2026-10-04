@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useUid } from '../auth/useSession'
+import { usePin } from '../data/helpers'
 import { useAddTask, useSpaces, useTasks, useUpdateTask } from '../data/queries'
 import { addDays, todayLocal } from '../lib/dates'
+import { oneoffPlace } from '../lib/home'
 import { topSortOrder } from '../lib/order'
-import type { TaskKind, TaskWithLast } from '../lib/types'
+import type { TaskKind, TaskUpdate, TaskWithLast } from '../lib/types'
 import { Sheet } from './Sheet'
-import { cardCls, inputCls, primaryBtn, secondaryBtn } from './ui'
+import { useSnackbar } from './Snackbar'
+import { cardCls, inputCls, PinIcon, primaryBtn, secondaryBtn } from './ui'
 
 const PRESETS = [3, 7, 14, 30]
 const DUE_PRESETS = [
@@ -21,6 +24,7 @@ export function AddTaskSheet({
   defaultKind = 'recurring',
   task,
   lockKind = false,
+  onMakeGroup,
 }: {
   open: boolean
   onClose: () => void
@@ -28,12 +32,16 @@ export function AddTaskSheet({
   task?: TaskWithLast // edit mode
   /** Subtasks and their parents must stay one-offs (enforced by the 0003 trigger). */
   lockKind?: boolean
+  /** Offers "Make a group instead" on a new one-off; gets the title and space picked so far. */
+  onMakeGroup?: (draft: { title: string; spaceId: string | null }) => void
 }) {
   const uid = useUid()
   const { data: spaces } = useSpaces()
   const { data: tasks } = useTasks()
   const addTask = useAddTask()
   const updateTask = useUpdateTask()
+  const snackbar = useSnackbar()
+  const pin = usePin()
 
   const [title, setTitle] = useState('')
   const [kind, setKind] = useState<TaskKind>(defaultKind)
@@ -44,6 +52,7 @@ export function AddTaskSheet({
   // add flow has to stay a ten-second job
   const [dueOn, setDueOn] = useState<string | null>(null)
   const [showDue, setShowDue] = useState(false)
+  const [pinned, setPinned] = useState(false)
   // Checklist typed up front. These stay local rows until save, then become
   // one-off tasks pointing at the new parent — same shape the detail screen makes.
   const [checklist, setChecklist] = useState<{ id: string; title: string }[]>([])
@@ -57,6 +66,7 @@ export function AddTaskSheet({
     setNotes(task?.notes ?? '')
     setDueOn(task?.due_on ?? null)
     setShowDue(!!task?.due_on)
+    setPinned(!!task?.pinned_at)
     setChecklist([])
     setSubtaskDraft('')
     const remembered = localStorage.getItem('tin-last-space')
@@ -68,6 +78,10 @@ export function AddTaskSheet({
         null,
     )
   }, [open, task, defaultKind, spaces])
+
+  const canHaveDeadline = kind === 'oneoff' && !task?.parent_id && !task?.is_group
+  // the same rows a deadline can go on: top-level, non-group one-offs (0007)
+  const canPin = canHaveDeadline
 
   function addChecklistItem() {
     const t = subtaskDraft.trim()
@@ -83,11 +97,21 @@ export function AddTaskSheet({
     // recurring tasks answer "how long since", not "by when", and subtasks
     // borrow their parent's urgency — 0004 rejects a deadline on either
     const due_on = kind === 'oneoff' && !task?.parent_id ? dueOn : null
+    const pinNow = canPin && pinned
     if (task) {
-      updateTask.mutate({
-        id: task.id,
-        patch: { title: t, notes: notes.trim() || null, kind, interval_days, due_on },
-      })
+      const patch: TaskUpdate = { title: t, notes: notes.trim() || null, kind, interval_days, due_on }
+      // A row that can't hold a pin (0007's CHECK) always clears it, like due_on
+      // above — even one this cache hasn't seen yet, say a roommate's, which
+      // would otherwise make switching to recurring fail. Where a pin can stay,
+      // it's sent only when it changed: re-sending the old value would restamp
+      // when it was pinned, or clobber a pin made while the sheet was open.
+      if (!canPin) patch.pinned_at = null
+      else if (pinNow !== !!task.pinned_at)
+        patch.pinned_at = pinNow ? new Date().toISOString() : null
+      updateTask.mutate(
+        { id: task.id, patch },
+        { onError: () => snackbar('Couldn’t save — check your connection') },
+      )
       onClose()
       return
     }
@@ -103,8 +127,7 @@ export function AddTaskSheet({
     localStorage.setItem('tin-last-space', spaceId)
     onClose() // the sheet doesn't wait on the network; the rows are optimistic
 
-    try {
-      await addTask.mutateAsync({
+    const inserted = addTask.mutateAsync({
         id,
         space_id: spaceId,
         title: t,
@@ -114,8 +137,30 @@ export function AddTaskSheet({
         sort_order: topSortOrder(tasks), // new tasks land on top
         parent_id: null,
         due_on,
+        pinned_at: pinNow ? new Date().toISOString() : null,
         createdBy: uid,
       })
+
+    // Up next is right under the header, so a task landing there needs no
+    // telling. Further down, say where it went — and since the moment you add
+    // something is when you know whether it's pressing, offer the pin. Shown
+    // now, like the row itself, so it can't land late on top of a newer
+    // snackbar; the pin waits for the insert so the update can't race it.
+    if (kind === 'oneoff' && !pinNow) {
+      const place = oneoffPlace({ due_on, pinned_at: null })
+      if (place !== 'upNext')
+        snackbar(`Added “${t}” to ${place === 'comingUp' ? 'Coming up' : 'Backlog'}`, {
+          label: 'Pin',
+          onClick: () =>
+            void inserted.then(
+              () => pin({ id, title: t, due_on, pinned_at: null }, true),
+              () => {}, // rolled back; nothing left to pin
+            ),
+        })
+    }
+
+    try {
+      await inserted
     } catch {
       return // parent rolled back — don't strand a checklist under an id that isn't there
     }
@@ -138,7 +183,13 @@ export function AddTaskSheet({
   }
 
   const today = todayLocal()
-  const canHaveDeadline = kind === 'oneoff' && !task?.parent_id && !task?.is_group
+  const groupable =
+    kind === 'oneoff' &&
+    checklist.length === 0 &&
+    !subtaskDraft.trim() &&
+    !dueOn &&
+    !pinned &&
+    !notes.trim()
 
   const segCls = (active: boolean) =>
     `h-10 flex-1 rounded-lg text-sm font-semibold transition ${
@@ -218,51 +269,65 @@ export function AddTaskSheet({
           </div>
         )}
 
-        {canHaveDeadline &&
-          (showDue ? (
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center justify-between px-1">
-                <span className="text-sm text-stone-500">Due by</span>
-                <button
-                  type="button"
-                  className="text-sm font-semibold text-stone-400"
-                  onClick={() => {
-                    setShowDue(false)
-                    setDueOn(null)
-                  }}
-                >
-                  Clear
-                </button>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {DUE_PRESETS.map((p) => (
-                  <button
-                    key={p.days}
-                    type="button"
-                    className={chipCls(dueOn === addDays(today, p.days))}
-                    onClick={() => setDueOn(addDays(today, p.days))}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-              {/* the picker is the source of truth; the chips just fill it in */}
-              <input
-                type="date"
-                className={inputCls}
-                value={dueOn ?? ''}
-                onChange={(e) => setDueOn(e.target.value || null)}
-              />
-            </div>
-          ) : (
+        {canHaveDeadline && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <button
               type="button"
-              className="self-start px-1 text-sm font-semibold text-accent"
-              onClick={() => setShowDue(true)}
+              aria-pressed={pinned}
+              className={`flex items-center gap-1.5 ${chipCls(pinned)}`}
+              onClick={() => setPinned((p) => !p)}
             >
-              + Add a deadline
+              <PinIcon size={15} filled={pinned} />
+              Pin to Up next
             </button>
-          ))}
+            {!showDue && (
+              <button
+                type="button"
+                className="h-10 px-1 text-sm font-semibold text-accent"
+                onClick={() => setShowDue(true)}
+              >
+                + Add a deadline
+              </button>
+            )}
+          </div>
+        )}
+
+        {canHaveDeadline && showDue && (
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between px-1">
+              <span className="text-sm text-stone-500">Due by</span>
+              <button
+                type="button"
+                className="text-sm font-semibold text-stone-400"
+                onClick={() => {
+                  setShowDue(false)
+                  setDueOn(null)
+                }}
+              >
+                Clear
+              </button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {DUE_PRESETS.map((p) => (
+                <button
+                  key={p.days}
+                  type="button"
+                  className={chipCls(dueOn === addDays(today, p.days))}
+                  onClick={() => setDueOn(addDays(today, p.days))}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            {/* the picker is the source of truth; the chips just fill it in */}
+            <input
+              type="date"
+              className={inputCls}
+              value={dueOn ?? ''}
+              onChange={(e) => setDueOn(e.target.value || null)}
+            />
+          </div>
+        )}
 
         {!task && kind === 'oneoff' && (
           <div className="flex flex-col gap-2">
@@ -339,6 +404,22 @@ export function AddTaskSheet({
         <button className={primaryBtn} disabled={!title.trim() || !spaceId}>
           {task ? 'Save changes' : 'Add task'}
         </button>
+
+        {/* a list you keep refilling is a group, not a task — offered only while
+            the sheet holds nothing a group can't keep (steps, a deadline, a pin,
+            notes), so switching never throws anything away */}
+        {!task && onMakeGroup && groupable && (
+          <button
+            type="button"
+            className="-mt-2 h-11 self-center px-3 text-sm font-semibold text-stone-500"
+            onClick={() => {
+              onMakeGroup({ title: title.trim(), spaceId })
+              onClose()
+            }}
+          >
+            Make a group instead
+          </button>
+        )}
       </form>
     </Sheet>
   )
