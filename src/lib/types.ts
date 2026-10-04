@@ -31,14 +31,31 @@ export type TaskRow = Omit<Tables['tasks']['Row'], 'kind'> & { kind: TaskKind }
 /** Columns a client is granted on insert (0001, plus the additive grants since). */
 export type TaskInsert = Pick<
   Tables['tasks']['Insert'],
-  'id' | 'space_id' | 'title' | 'notes' | 'interval_days' | 'sort_order' | 'parent_id' | 'due_on' | 'is_group'
+  | 'id'
+  | 'space_id'
+  | 'title'
+  | 'notes'
+  | 'interval_days'
+  | 'sort_order'
+  | 'parent_id'
+  | 'due_on'
+  | 'is_group'
+  | 'pinned_at'
 > & { kind: TaskKind }
 
 /** Columns a client is granted on update. */
 export type TaskUpdate = Partial<
   Pick<
     Tables['tasks']['Update'],
-    'title' | 'notes' | 'interval_days' | 'archived' | 'sort_order' | 'parent_id' | 'due_on' | 'is_group'
+    | 'title'
+    | 'notes'
+    | 'interval_days'
+    | 'archived'
+    | 'sort_order'
+    | 'parent_id'
+    | 'due_on'
+    | 'is_group'
+    | 'pinned_at'
   > & { kind: TaskKind }
 >
 

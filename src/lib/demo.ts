@@ -50,6 +50,8 @@ export function seedDemo(qc: QueryClient): void {
   // parent: the backlog item a subtask hangs off (see 0003_subtasks.sql)
   // GROUPS: buckets rather than tasks — is_group in 0005
   const GROUPS = new Set<string>(['tk-shop'])
+  // PINNED: one-offs pinned to Up next, and how many days ago (pinned_at, 0007)
+  const PINNED: Record<string, number> = { 'tk-trip': 3, 'tk-dentist': 1 }
   const defs = [
     { id: 'tk-fountain', space: 'sp-apt', title: 'Cat fountain filter', kind: 'recurring', interval: 14, notes: 'Wash the pump too', parent: null, due: null, history: [[16, SAM], [31, DEMO_ME], [44, DEMO_ME]] },
     { id: 'tk-plants', space: 'sp-apt', title: 'Water the plants', kind: 'recurring', interval: 3, notes: null, parent: null, due: null, history: [[3, DEMO_ME], [6, SAM], [10, DEMO_ME]] },
@@ -57,6 +59,7 @@ export function seedDemo(qc: QueryClient): void {
     { id: 'tk-sheets', space: 'sp-personal', title: 'Wash sheets', kind: 'recurring', interval: 30, notes: null, parent: null, due: null, history: [[12, DEMO_ME], [41, DEMO_ME]] },
     { id: 'tk-litter', space: 'sp-apt', title: 'Deep-clean litter box', kind: 'recurring', interval: 7, notes: null, parent: null, due: null, history: [] },
     { id: 'tk-pillow', space: 'sp-personal', title: 'Buy a new pillow', kind: 'oneoff', interval: null, notes: 'Side-sleeper, medium-firm', parent: null, due: null, history: [] },
+    { id: 'tk-dentist', space: 'sp-personal', title: 'Book a dentist cleaning', kind: 'oneoff', interval: null, notes: null, parent: null, due: null, history: [] },
     { id: 'tk-trip', space: 'sp-personal', title: 'Plan the Montreal trip', kind: 'oneoff', interval: null, notes: null, parent: null, due: 5, history: [] },
     { id: 'tk-trip-hotel', space: 'sp-personal', title: 'Book the hotel', kind: 'oneoff', interval: null, notes: null, parent: 'tk-trip', due: null, history: [[4, DEMO_ME]] },
     { id: 'tk-trip-train', space: 'sp-personal', title: 'Buy train tickets', kind: 'oneoff', interval: null, notes: null, parent: 'tk-trip', due: null, history: [[2, DEMO_ME]] },
@@ -95,6 +98,8 @@ export function seedDemo(qc: QueryClient): void {
       interval_days: d.interval, archived: false, sort_order: tasks.length,
       parent_id: d.parent, is_group: GROUPS.has(d.id),
       due_on: d.due === null ? null : addDays(today, d.due),
+      pinned_at:
+        d.id in PINNED ? new Date(Date.now() - PINNED[d.id] * 86_400_000).toISOString() : null,
       created_by: DEMO_ME, created_at: now,
       last: history[0]
         ? { id: history[0].id, done_on: history[0].done_on, done_by: history[0].done_by }

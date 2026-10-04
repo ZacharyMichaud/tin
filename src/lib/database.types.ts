@@ -121,6 +121,7 @@ export type Database = {
           kind: string
           notes: string | null
           parent_id: string | null
+          pinned_at: string | null
           sort_order: number
           space_id: string
           title: string
@@ -136,6 +137,7 @@ export type Database = {
           kind: string
           notes?: string | null
           parent_id?: string | null
+          pinned_at?: string | null
           sort_order?: number
           space_id: string
           title: string
@@ -151,6 +153,7 @@ export type Database = {
           kind?: string
           notes?: string | null
           parent_id?: string | null
+          pinned_at?: string | null
           sort_order?: number
           space_id?: string
           title?: string

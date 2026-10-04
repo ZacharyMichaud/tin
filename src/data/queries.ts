@@ -194,6 +194,8 @@ export interface AddTaskVars {
   parent_id: string | null
   is_group?: boolean
   due_on: string | null
+  /** When it was pinned to Up next (0007); null or absent for unpinned. */
+  pinned_at?: string | null
   createdBy: string
 }
 
@@ -213,6 +215,7 @@ export function useAddTask() {
         parent_id: v.parent_id,
         is_group: v.is_group ?? false,
         due_on: v.due_on,
+        pinned_at: v.pinned_at ?? null,
       })
       if (error) throw error
     },
@@ -223,7 +226,7 @@ export function useAddTask() {
         id: v.id, space_id: v.space_id, title: v.title, notes: v.notes, kind: v.kind,
         interval_days: v.interval_days, archived: false, sort_order: v.sort_order,
         parent_id: v.parent_id, due_on: v.due_on, is_group: v.is_group ?? false,
-        created_by: v.createdBy,
+        pinned_at: v.pinned_at ?? null, created_by: v.createdBy,
         created_at: new Date().toISOString(), last: null,
       }
       qc.setQueryData<TaskWithLast[]>(keys.tasks, (old) => [row, ...(old ?? [])])
