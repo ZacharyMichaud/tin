@@ -149,7 +149,9 @@ export function GroupRow({
           </ul>
           <form className="flex items-center gap-2 pr-1" onSubmit={add}>
             <input
-              className="h-11 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-stone-400"
+              // 16px, not the items' text-sm: iOS zooms the page in on focus
+              // for any input smaller than that
+              className="h-11 min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-stone-400"
               placeholder="Add an item"
               aria-label={`Add an item to “${task.title}”`}
               value={draft}
