@@ -45,7 +45,6 @@ function readFolds(): Record<Foldable, boolean> {
 const SEGMENTS: { key: keyof UpNextBreakdown; dot: string }[] = [
   { key: 'overdue', dot: urgencyDot.overdue },
   { key: 'today', dot: urgencyDot.due },
-  { key: 'new', dot: urgencyDot.new },
   { key: 'soon', dot: urgencyDot.soon },
   { key: 'pinned', dot: 'bg-accent' },
 ]

@@ -1,12 +1,16 @@
 // The home list: every live task placed in exactly one section, running from
 // "now" to "someday".
 //
-//   Up next   — late, due today, never logged, or due within UP_NEXT_DAYS on
-//               its own clock (chores and deadlines alike), plus every one-off
-//               you've pinned
-//   Coming up — every other chore, and deadlines further out, soonest first
+//   Up next   — one-offs whose deadline is late, today, or within
+//               UP_NEXT_DAYS, plus every one-off you've pinned
+//   Coming up — every chore, due or not, and deadlines further out, soonest
+//               first
 //   Backlog   — undated one-offs and groups, in your own order
 //   Done      — one-offs the log says are finished
+//
+// Chores never go up next, however late. They're the routine, there to be done
+// again and again; the top of the list is for the one-time things that would
+// otherwise sink under them.
 //
 // Placement is one decision per row (place() below) rather than a filter per
 // section, so a row can't fall between two filters and vanish — the way
@@ -14,10 +18,10 @@
 // else it's recomputed from the log and the user-set attributes on every
 // render; nothing about where a row sits is stored except the pin.
 
-import { addDays, fmtDue, todayLocal } from './dates'
+import { fmtDue } from './dates'
 import { backlogItems } from './subtasks'
 import type { BacklogItem } from './subtasks'
-import { deadlineState, isPressing, taskState, UP_NEXT_DAYS } from './task-state'
+import { deadlineState, taskState, UP_NEXT_DAYS } from './task-state'
 import type { TaskState } from './task-state'
 import type { TaskRow, TaskWithLast } from './types'
 
@@ -45,12 +49,12 @@ export type Place = keyof HomeSections
 export function oneoffPlace(t: Pick<TaskRow, 'due_on' | 'pinned_at'>): Exclude<Place, 'done'> {
   if (t.pinned_at) return 'upNext'
   if (!t.due_on) return 'backlog'
-  return isPressing({ daysSince: null, ...deadlineState(t.due_on) }) ? 'upNext' : 'comingUp'
+  return deadlineState(t.due_on).dueIn <= UP_NEXT_DAYS ? 'upNext' : 'comingUp'
 }
 
 function place(e: HomeEntry): Place {
-  // a chore always has a clock, so it's either pressing or coming up
-  if (!e.item) return isPressing(e.s) ? 'upNext' : 'comingUp'
+  // never up next, however late — Coming up sorts the latest chore first
+  if (!e.item) return 'comingUp'
   if (e.item.done) return 'done'
   // a bucket never finishes and has no date to come due on
   if (e.item.isGroup) return 'backlog'
@@ -64,7 +68,7 @@ const byHandOrder = (a: HomeEntry, b: HomeEntry) =>
 
 const choresFirst = (a: HomeEntry, b: HomeEntry) => Number(!!a.item) - Number(!!b.item)
 
-/** Same-day order in Up next: dated rows, then never-logged chores, then undated pins. */
+/** Same-day order: dated rows, then never-logged chores, then undated pins. */
 function tier(e: HomeEntry): number {
   if (e.s.dueIn === null) return 2
   return e.s.urgency === 'new' ? 1 : 0
@@ -77,7 +81,6 @@ function upNextOrder(a: HomeEntry, b: HomeEntry): number {
   return (
     (a.s.dueIn ?? 0) - (b.s.dueIn ?? 0) ||
     tier(a) - tier(b) ||
-    choresFirst(a, b) ||
     time(a.task.pinned_at) - time(b.task.pinned_at) ||
     byHandOrder(a, b)
   )
@@ -88,7 +91,7 @@ function comingUpOrder(a: HomeEntry, b: HomeEntry): number {
   const da = a.s.dueIn ?? Infinity
   const db = b.s.dueIn ?? Infinity
   if (da !== db) return da - db
-  return choresFirst(a, b) || byHandOrder(a, b)
+  return tier(a) - tier(b) || choresFirst(a, b) || byHandOrder(a, b)
 }
 
 const doneOrder = (a: HomeEntry, b: HomeEntry) =>
@@ -116,18 +119,16 @@ export function homeSections(tasks: TaskWithLast[]): HomeSections {
 export interface UpNextBreakdown {
   overdue: number
   today: number
-  new: number
   soon: number
   pinned: number
 }
 
 /** The header's split of Up next. Every row lands in exactly one bucket, so they sum to the count. */
 export function upNextBreakdown(upNext: HomeEntry[]): UpNextBreakdown {
-  const b: UpNextBreakdown = { overdue: 0, today: 0, new: 0, soon: 0, pinned: 0 }
-  for (const { task, s } of upNext) {
-    if (task.kind === 'recurring' && s.urgency === 'new') b.new++
+  const b: UpNextBreakdown = { overdue: 0, today: 0, soon: 0, pinned: 0 }
+  for (const { s } of upNext) {
     // up next only because of the pin: no date, or one that isn't close yet
-    else if (s.dueIn === null || s.dueIn > UP_NEXT_DAYS) b.pinned++
+    if (s.dueIn === null || s.dueIn > UP_NEXT_DAYS) b.pinned++
     else if (s.dueIn < 0) b.overdue++
     else if (s.dueIn === 0) b.today++
     else b.soon++
@@ -135,10 +136,11 @@ export function upNextBreakdown(upNext: HomeEntry[]): UpNextBreakdown {
   return b
 }
 
-/** "Next: Vacuum living room, due Friday" — what's coming once Up next is clear. */
+/**
+ * "Next: Book the dentist, due Friday" — the deadline that comes up next once
+ * Up next is clear. Not a chore: they never come up next, however late.
+ */
 export function nextUpLine(comingUp: HomeEntry[]): string | null {
-  const first = comingUp[0]
-  if (!first || first.s.dueIn === null) return null
-  const on = first.task.due_on ?? addDays(todayLocal(), first.s.dueIn)
-  return `Next: ${first.task.title}, due ${fmtDue(on)}`
+  const first = comingUp.find((e) => e.task.due_on)
+  return first ? `Next: ${first.task.title}, due ${fmtDue(first.task.due_on!)}` : null
 }
